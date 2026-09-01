@@ -140,6 +140,7 @@ members = [
     "uds",
     "codex-experimental-api-macros",
     "plugin",
+    "moa",
     "model-provider",
 ]
 resolver = "2"

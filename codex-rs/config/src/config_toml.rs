@@ -521,6 +521,38 @@ pub struct ConfigToml {
     pub experimental_use_unified_exec_tool: Option<bool>,
     /// Preferred OSS provider for local models, e.g. "lmstudio" or "ollama".
     pub oss_provider: Option<String>,
+
+    /// Mixture-of-Agents configuration (ported from Hermes D:\Hermes\config.yaml:116).
+    pub moa: Option<MoaToml>,
+}
+
+/// MoA configuration - mirrors Hermes moa_config.py
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct MoaToml {
+    pub default_preset: Option<String>,
+    pub active_preset: Option<String>,
+    #[serde(default)]
+    pub presets: std::collections::HashMap<String, MoaPresetToml>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct MoaPresetToml {
+    #[serde(default)]
+    pub reference_models: Vec<MoaSlotToml>,
+    pub aggregator: Option<MoaSlotToml>,
+    pub reference_temperature: Option<f32>,
+    pub aggregator_temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub reference_max_tokens: Option<u32>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
+pub struct MoaSlotToml {
+    pub provider: String,
+    pub model: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]

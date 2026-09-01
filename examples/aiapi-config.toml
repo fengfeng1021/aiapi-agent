@@ -1,0 +1,84 @@
+# Aiapi Agent 範例配置
+# 位置: ~/.codex/config.toml 或 D:\Desktop\App\Aiapi Agent\examples\aiapi-config.toml
+# 合併了 opencode 供應商 + Hermes MoA + GPT/Gemini 登入
+
+# ── 預設模型 ──
+model = "gpt-5.1-codex-mini"
+model_provider = "openai"
+
+# ── 內建供應商會自動註冊，以下為 opencode 遷移範例 ──
+# 這些對應 C:\Users\Administrator\.config\opencode\opencode.json 的 provider
+
+[model_providers.aiapi]
+name = "Aiapi (OpenAI-Compatible)"
+base_url = "https://aiapi.tw/v1"
+# 對應 opencode.json: provider.gemini.options.apiKey / provider.aiapi
+# 設定環境變數 AIAPI_API_KEY 或 GEMINI_API_KEY
+env_key = "AIAPI_API_KEY"
+wire_api = "responses"
+
+[model_providers.gemini]
+name = "Google Gemini"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+# 支援兩種登入：API Key (GOOGLE_API_KEY) 或 OAuth (見下)
+env_key = "GEMINI_API_KEY"
+wire_api = "responses"
+
+[model_providers.gemini-oauth]
+name = "Google Gemini OAuth (Antigravity)"
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+# OAuth 模式：requires_openai_auth = false, 透過 google_oauth.rs 獲取 token
+# 登入後 token 存於 ~/.codex/auth.json 的 providers.gemini-oauth
+requires_openai_auth = false
+wire_api = "responses"
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com/v1"
+env_key = "DEEPSEEK_API_KEY"
+wire_api = "responses"
+
+[model_providers.zhipuai]
+name = "Zhipu AI"
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+env_key = "ZHIPU_API_KEY"
+wire_api = "responses"
+
+# ── Gemini 模型範例 (對應 opencode.json: gemini-3.7-flash 等) ──
+# 這些模型名稱可直接在 model 欄位使用，例如: model = "gemini-3.7-flash" + model_provider = "gemini"
+
+# ── MoA 多模型協同 (移植自 D:\Hermes\config.yaml:116) ──
+[moa]
+default_preset = "default"
+active_preset = ""  # 空表示未啟用，設為 "default" 啟用
+
+[moa.presets.default]
+# 參考模型：並行呼叫，最後由 aggregator 綜合
+reference_models = [
+  { provider = "openai", model = "gpt-5.4" },
+  { provider = "gemini", model = "gemini-3.7-flash" },
+  { provider = "deepseek", model = "deepseek-v4" },
+]
+aggregator = { provider = "openai", model = "gpt-5.1-codex" }
+reference_temperature = 0.6
+aggregator_temperature = 0.4
+max_tokens = 4096
+# reference_max_tokens = 600  # 可選：限制每個參考模型輸出，縮短延遲
+enabled = true
+
+[moa.presets.fast]
+reference_models = [
+  { provider = "openai", model = "gpt-5-mini" },
+  { provider = "gemini", model = "gemini-3.5-flash-lite" },
+]
+aggregator = { provider = "openai", model = "gpt-5-mini" }
+reference_temperature = 0.6
+aggregator_temperature = 0.4
+max_tokens = 2048
+enabled = true
+
+# ── 登入說明 ──
+# GPT (Codex): 執行 `codex login` 或 `aiapi login --provider openai`，會開啟 https://auth.openai.com/oauth/authorize
+# Gemini API Key: 設定環境變數 GEMINI_API_KEY=AIza... 然後 model_provider = "gemini"
+# Gemini OAuth (Antigravity): 執行 `aiapi login --provider gemini-oauth`，會開啟 Google OAuth 頁面，授權後自動寫入 ~/.codex/auth.json
+# 驗證: `aiapi auth status` 或 `codex login status`

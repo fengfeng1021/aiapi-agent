@@ -1,0 +1,22 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "codex-moa",
+    srcs = ["src/lib.rs"],
+    edition = "2021",
+    deps = [
+        "@crates//:schemars",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:futures",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "codex-moa-tests",
+    crate = ":codex-moa",
+    deps = ["@crates//:pretty_assertions"],
+)

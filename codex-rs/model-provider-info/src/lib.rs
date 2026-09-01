@@ -506,6 +506,11 @@ pub const DEFAULT_OLLAMA_PORT: u16 = 11434;
 
 pub const LMSTUDIO_OSS_PROVIDER_ID: &str = "lmstudio";
 pub const OLLAMA_OSS_PROVIDER_ID: &str = "ollama";
+pub const GEMINI_PROVIDER_ID: &str = "gemini";
+pub const AIAPI_PROVIDER_ID: &str = "aiapi";
+pub const DEEPSEEK_PROVIDER_ID: &str = "deepseek";
+pub const ZHIPU_PROVIDER_ID: &str = "zhipuai";
+pub const ANTHROPIC_PROVIDER_ID: &str = "anthropic";
 
 /// Built-in default provider list.
 pub fn built_in_model_providers(
@@ -517,12 +522,52 @@ pub fn built_in_model_providers(
     let amazon_bedrock_runtime_provider =
         P::create_amazon_bedrock_runtime_provider(/*aws*/ None);
 
+    // Aiapi extensions: add opencode-compatible providers so Codex can directly
+    // use gemini/aiapi/deepseek without requiring config.toml entries. These
+    // mirror C:\Users\Administrator\.config\opencode\opencode.json and
+    // D:\Hermes\models_dev_cache.json. See docs/aiapi-integration.md.
+    let gemini_provider = ModelProviderInfo {
+        name: "Google Gemini".into(),
+        base_url: Some("https://generativelanguage.googleapis.com/v1beta".into()),
+        env_key: Some("GEMINI_API_KEY".into()),
+        env_key_instructions: Some("Set GEMINI_API_KEY or GOOGLE_API_KEY from https://aistudio.google.com/app/apikey".into()),
+        wire_api: WireApi::Responses,
+        ..Default::default()
+    };
+    let aiapi_provider = ModelProviderInfo {
+        name: "Aiapi (OpenAI-Compatible)".into(),
+        base_url: Some("https://aiapi.tw/v1".into()),
+        env_key: Some("AIAPI_API_KEY".into()),
+        env_key_instructions: Some("Set AIAPI_API_KEY from https://aiapi.tw".into()),
+        wire_api: WireApi::Responses,
+        ..Default::default()
+    };
+    let deepseek_provider = ModelProviderInfo {
+        name: "DeepSeek".into(),
+        base_url: Some("https://api.deepseek.com/v1".into()),
+        env_key: Some("DEEPSEEK_API_KEY".into()),
+        wire_api: WireApi::Responses,
+        ..Default::default()
+    };
+    let anthropic_provider = ModelProviderInfo {
+        name: "Anthropic".into(),
+        base_url: Some("https://api.anthropic.com".into()),
+        env_key: Some("ANTHROPIC_API_KEY".into()),
+        wire_api: WireApi::Responses,
+        ..Default::default()
+    };
+
     // We do not want to be in the business of adjucating which third-party
     // providers are bundled with Codex CLI, so we only include the OpenAI and
     // open source ("oss") providers by default. Users are encouraged to add to
     // `model_providers` in config.toml to add their own providers.
+    // Aiapi: keep defaults but also bundle the most common opencode providers.
     [
         (OPENAI_PROVIDER_ID, openai_provider),
+        (GEMINI_PROVIDER_ID, gemini_provider),
+        (AIAPI_PROVIDER_ID, aiapi_provider),
+        (DEEPSEEK_PROVIDER_ID, deepseek_provider),
+        (ANTHROPIC_PROVIDER_ID, anthropic_provider),
         (AMAZON_BEDROCK_PROVIDER_ID, amazon_bedrock_provider),
         (
             AMAZON_BEDROCK_RUNTIME_PROVIDER_ID,
