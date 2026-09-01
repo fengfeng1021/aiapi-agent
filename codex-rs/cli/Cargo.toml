@@ -11,6 +11,14 @@ name = "codex"
 path = "src/main.rs"
 
 [[bin]]
+name = "aiapi"
+path = "src/main.rs"
+
+[[bin]]
+name = "aiapi-agent"
+path = "src/main.rs"
+
+[[bin]]
 name = "logs_client"
 path = "src/bin/logs_client.rs"
 

@@ -6,7 +6,6 @@
 //! Token stored in `~/.codex/auth.json` under `providers.gemini-oauth`
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 
 pub const GOOGLE_OAUTH_CLIENT_ID_ENV: &str = "GOOGLE_OAUTH_CLIENT_ID";
 pub const GOOGLE_OAUTH_CLIENT_SECRET_ENV: &str = "GOOGLE_OAUTH_CLIENT_SECRET";

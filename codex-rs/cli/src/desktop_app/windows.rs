@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use tokio::process::Command;
 
 const CODEX_WINDOWS_INSTALLER_URL: &str =
-    "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi";
-const CODEX_MICROSOFT_STORE_WEB_URL: &str = "https://apps.microsoft.com/detail/9plm9xgg6vks";
+    "https://github.com/fengfeng1021/phoenix-vpn-docs/releases"; // Aiapi Agent - TODO: replace with actual installer
+const CODEX_MICROSOFT_STORE_WEB_URL: &str = "https://github.com/fengfeng1021/phoenix-vpn-docs/releases";
 
 pub async fn run_windows_app_open_or_install(
     workspace: PathBuf,
@@ -14,29 +14,29 @@ pub async fn run_windows_app_open_or_install(
     let workspace_path = workspace.display().to_string();
     let display_workspace = display_workspace_path(&workspace);
     if codex_app_is_installed().await? {
-        eprintln!("Opening workspace {display_workspace} in the Desktop app...");
+        eprintln!("Opening workspace {display_workspace} in Aiapi Agent Desktop...");
         open_url(&codex_new_thread_url(&workspace_path)).await?;
         return Ok(());
     }
 
-    eprintln!("Desktop app not found; opening Windows installer...");
+    eprintln!("Aiapi Agent Desktop not found; opening installer...");
     let download_url = download_url_override
         .as_deref()
         .unwrap_or(CODEX_WINDOWS_INSTALLER_URL);
     if open_url(download_url).await.is_err() && download_url_override.is_none() {
         open_url(CODEX_MICROSOFT_STORE_WEB_URL).await?;
     }
-    eprintln!("After installing the Desktop app, open workspace {display_workspace}.");
+    eprintln!("After installing Aiapi Agent Desktop, open workspace {display_workspace} with: aiapi agent \"{display_workspace}\"");
     Ok(())
 }
 
 async fn codex_app_is_installed() -> anyhow::Result<bool> {
-    // This package identity is stable across Codex- and ChatGPT-branded builds.
+    // Aiapi Agent - check for both Aiapi and legacy Codex installations
     let output = Command::new("powershell.exe")
         .arg("-NoProfile")
         .arg("-Command")
         .arg(
-            "Get-StartApps | Where-Object AppID -Like 'OpenAI.Codex_*!App' | Select-Object -First 1 -ExpandProperty AppID",
+            "Get-StartApps | Where-Object AppID -Like '*Aiapi*App' | Select-Object -First 1 -ExpandProperty AppID; Get-StartApps | Where-Object AppID -Like 'OpenAI.Codex_*!App' | Select-Object -First 1 -ExpandProperty AppID",
         )
         .output()
         .await
@@ -70,7 +70,7 @@ fn codex_new_thread_url(workspace: &str) -> String {
     let mut serializer = url::form_urlencoded::Serializer::new(String::new());
     serializer.append_pair("path", workspace);
     let query = serializer.finish();
-    format!("codex://threads/new?{query}")
+    format!("aiapi://threads/new?{query}") // Aiapi Agent scheme (was codex://)
 }
 
 fn display_workspace_path(workspace: &Path) -> String {
