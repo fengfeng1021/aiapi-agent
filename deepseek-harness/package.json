@@ -17,6 +17,7 @@
     "website"
   ],
   "scripts": {
+    "prebuild": "node scripts/emit-runtime-lib.mjs",
     "build": "tsx scripts/build.ts",
     "build:official": "tsx scripts/build.ts --profile official",
     "build:lib": "npm run build:lib:host && npm run build:lib:client",
