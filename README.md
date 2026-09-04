@@ -1,81 +1,84 @@
-<p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
-<p align="center">
-  <img src="https://github.com/openai/codex/blob/main/.github/codex-cli-splash.png" alt="Codex CLI splash" width="80%" />
-</p>
-</br>
-If you want Codex in your code editor (VS Code, Cursor, Windsurf), <a href="https://developers.openai.com/codex/ide">install in your IDE.</a>
-</br>If you want the desktop app experience, run <code>codex app</code> or visit <a href="https://chatgpt.com/codex?app-landing-page=true">the Codex App page</a>.
-</br>If you are looking for the <em>cloud-based agent</em> from OpenAI, <strong>Codex Web</strong>, go to <a href="https://chatgpt.com/codex">chatgpt.com/codex</a>.</p>
+# Aiapi Agent
 
----
+**Aiapi Agent** is an open, provider-agnostic coding agent: a professional
+execution core, a customizable DeepSeek-style frontend, and Mixture-of-Agents
+(MoA) multi-model collaboration in one package.
+
+- **Engine (Rust, `codex-rs/`)** — Codex harness execution loop (tools,
+  memory, review, sandbox) with any OpenAI-compatible provider/model, plus a
+  full MoA turn executor and Google OAuth login for Gemini.
+- **Frontend + Desktop (`deepseek-harness/`)** — DeepSeek Harness web UI
+  (React + Cordis plugins, MoA settings panel included) running in the
+  browser via `pnpm dsh web`, or as a Windows desktop app (Tauri MSI) via
+  `pnpm run desktop:build`.
+- **Config example** — see `examples/aiapi-config.toml` and
+  `docs/aiapi-integration.md`.
 
 ## Quickstart
 
-### Installing and running Codex CLI
-
-Run the following on Mac or Linux to install Codex CLI:
-
-```shell
-curl -fsSL https://chatgpt.com/codex/install.sh | sh
-```
-
-Run the following on Windows to install Codex CLI:
-
-```shell
-powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
-```
-
-The standalone installers download from `https://releases.openai.com/codex` by default and fall back to GitHub Releases if a metadata or asset download is unavailable. To force GitHub Releases, set `CODEX_INSTALLER_USE_RELEASES_OPENAI_COM` to `false` (`0` and `no` are also accepted):
-
-```shell
-curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_INSTALLER_USE_RELEASES_OPENAI_COM=false sh
-```
+### Backend CLI (`aiapi`)
 
 ```powershell
-$env:CODEX_INSTALLER_USE_RELEASES_OPENAI_COM='false'; irm https://chatgpt.com/codex/install.ps1 | iex
+# Windows (from a codex-rs checkout with Rust installed)
+cargo build --profile release --bin aiapi-agent
+.\target\release\aiapi-agent.exe --help
+
+# Log in with Google (Gemini), needs a Desktop OAuth client:
+$env:GOOGLE_OAUTH_CLIENT_ID = "<id>"
+$env:GOOGLE_OAUTH_CLIENT_SECRET = "<secret>"
+aiapi login --provider gemini
+
+# Or use API keys (see examples/aiapi-config.toml):
+$env:GEMINI_API_KEY = "<key>"
+$env:AIAPI_API_KEY = "<key>"
+$env:DEEPSEEK_API_KEY = "<key>"
 ```
 
-Codex CLI can also be installed via the following package managers:
+MoA (multi-model advisors + aggregator) is configured in
+`~/.codex/config.toml` under `[moa]` (presets with `reference_models` and an
+`aggregator`); leave `active_preset` empty to run single-model turns.
 
-```shell
-# Install using npm
-npm install -g @openai/codex
+### Frontend (browser)
+
+```sh
+cd deepseek-harness
+pnpm install
+pnpm run build
+pnpm dsh web
 ```
 
-```shell
-# Install using Homebrew
-brew install --cask codex
+### Desktop (Windows MSI, self-built, unsigned)
+
+```sh
+cd deepseek-harness
+pnpm run desktop:build -- --target x86_64-pc-windows-msvc
+# -> apps/desktop/src-tauri/target/<triple>/release/bundle/msi/*.msi
 ```
 
-Then simply run `codex` to get started.
+Unsigned builds install fine for internal testing (accept the SmartScreen
+prompt). See `docs/aiapi-integration.md` for the full integration design.
 
-<details>
-<summary>You can also go to the <a href="https://github.com/openai/codex/releases/latest">latest GitHub Release</a> and download the appropriate binary for your platform.</summary>
+## Repository layout
 
-Each GitHub Release contains many executables, but in practice, you likely want one of these:
+```
+codex-rs/            Rust engine (Codex fork: core, cli, login, moa, ...).
+deepseek-harness/    Web UI + desktop carrier (DeepSeek Harness + Tauri).
+docs/                Integration design (docs/aiapi-integration.md).
+examples/            Sample configs (examples/aiapi-config.toml).
+scripts/             Provider migration helpers.
+```
 
-- macOS
-  - Apple Silicon/arm64: `codex-aarch64-apple-darwin.tar.gz`
-  - x86_64 (older Mac hardware): `codex-x86_64-apple-darwin.tar.gz`
-- Linux
-  - x86_64: `codex-x86_64-unknown-linux-musl.tar.gz`
-  - arm64: `codex-aarch64-unknown-linux-musl.tar.gz`
+## Credits & License
 
-Each archive contains a single entry with the platform baked into the name (e.g., `codex-x86_64-unknown-linux-musl`), so you likely want to rename it to `codex` after extracting it.
-
-</details>
-
-### Using Codex with your ChatGPT plan
-
-Run `codex` and select **Sign in with ChatGPT**. We recommend signing into your ChatGPT account to use Codex as part of your Plus, Pro, Business, Edu, or Enterprise plan. [Learn more about what's included in your ChatGPT plan](https://help.openai.com/en/articles/11369540-codex-in-chatgpt).
-
-You can also use Codex with an API key, but this requires [additional setup](https://developers.openai.com/codex/auth#sign-in-with-an-api-key).
-
-## Docs
-
-- [**Codex Documentation**](https://developers.openai.com/codex)
-- [**Contributing**](./docs/contributing.md)
-- [**Installing & building**](./docs/install.md)
-- [**Open source fund**](./docs/open-source-fund.md)
+- Engine derived from [openai/codex](https://github.com/openai/codex)
+  (Apache-2.0; see `LICENSE`, `NOTICE`).
+- Frontend derived from
+  [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)
+  (MIT; see `deepseek-harness/LICENSE`,
+  `deepseek-harness/THIRD_PARTY_NOTICES.md`).
+- Desktop carrier derived from the community Tauri fork
+  (`desktop-shell` sources were ported onto `deepseek-harness/`; the stale
+  snapshot directory is intentionally **not** part of this repository).
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
+Third-party components keep their own licenses as noted above.

@@ -300,6 +300,8 @@ pub(crate) async fn run_turn(
     // 2. After auto-compact, when model/tool continuation needs to resume before any steer.
 
     let mut next_step_context = Some(first_step_context);
+    // MoA runs once per turn (v1 cost bound), not per tool-loop iteration.
+    let mut moa_ran_this_turn = false;
     loop {
         // Note that pending_input would be something like a message the user
         // submitted through the UI while the model was running. Though the UI
@@ -369,7 +371,7 @@ pub(crate) async fn run_turn(
                 .await?;
 
             // Construct the input that we will send to the model.
-            let sampling_request_input: Vec<ResponseItem> = async {
+            let mut sampling_request_input: Vec<ResponseItem> = async {
                 sess.clone_history()
                     .await
                     .for_prompt(&step_context.settings.model_info.input_modalities)
@@ -380,6 +382,35 @@ pub(crate) async fn run_turn(
             let responses_metadata = sess
                 .responses_metadata(turn_context.as_ref(), CodexResponsesRequestKind::Turn)
                 .await;
+
+            // MoA v1: gather reference-model guidance once per turn and share
+            // it with both the current request (local push) and any stream
+            // retries (history record). A miss simply runs the turn as usual.
+            if !moa_ran_this_turn {
+                moa_ran_this_turn = true;
+                let turn_user_prompt = user_input
+                    .iter()
+                    .filter_map(|item| match item {
+                        UserInput::Text { text, .. } => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if let Some(guidance_item) = super::moa_caller::maybe_run_moa_guidance(
+                    &sess,
+                    &turn_context,
+                    &sampling_request_input,
+                    &turn_user_prompt,
+                    &responses_metadata,
+                    cancellation_token.child_token(),
+                )
+                .await
+                {
+                    sampling_request_input.push(guidance_item.clone());
+                    sess.record_conversation_items(&turn_context, std::slice::from_ref(&guidance_item))
+                        .await;
+                }
+            }
             run_sampling_request(
                 Arc::clone(&sess),
                 Arc::clone(&step_context),

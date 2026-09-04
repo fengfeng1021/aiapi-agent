@@ -2,11 +2,11 @@ use super::*;
 use crate::token_data::IdTokenInfo;
 use anyhow::Context;
 use base64::Engine;
+use codex_secrets::compute_keyring_account;
 use codex_secrets::LocalSecretsNamespace;
 use codex_secrets::SecretScope;
 use codex_secrets::SecretsBackendKind;
 use codex_secrets::SecretsManager;
-use codex_secrets::compute_keyring_account;
 use pretty_assertions::assert_eq;
 use serde_json::json;
 use tempfile::tempdir;
@@ -27,6 +27,7 @@ async fn file_storage_load_returns_auth_dot_json() -> anyhow::Result<()> {
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage
@@ -51,6 +52,7 @@ async fn file_storage_save_persists_auth_dot_json() -> anyhow::Result<()> {
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     let file = get_auth_file(codex_home.path());
@@ -87,6 +89,7 @@ async fn file_storage_round_trips_agent_identity_auth() -> anyhow::Result<()> {
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -119,6 +122,7 @@ async fn file_storage_round_trips_registered_agent_identity_auth() -> anyhow::Re
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -171,6 +175,7 @@ async fn file_storage_loads_empty_agent_identity_email_as_none() -> anyhow::Resu
             personal_access_token: None,
             bedrock_api_key: None,
             bedrock_access_keys: None,
+            providers: None,
         })
     );
     Ok(())
@@ -198,6 +203,7 @@ async fn file_storage_writes_missing_agent_identity_email_as_empty_string() -> a
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -222,6 +228,7 @@ async fn file_storage_round_trips_personal_access_token_auth() -> anyhow::Result
         personal_access_token: Some("at-example".to_string()),
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -274,6 +281,7 @@ fn file_storage_delete_removes_auth_file() -> anyhow::Result<()> {
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
     let storage = create_auth_storage(
         dir.path().to_path_buf(),
@@ -306,6 +314,7 @@ fn ephemeral_storage_save_load_delete_is_in_memory_only() -> anyhow::Result<()> 
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth_dot_json)?;
@@ -440,6 +449,7 @@ fn auth_with_prefix(prefix: &str) -> AuthDotJson {
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     }
 }
 
@@ -468,6 +478,7 @@ fn secrets_keyring_auth_storage_load_returns_deserialized_auth() -> anyhow::Resu
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
     seed_secrets_backend_with_auth(&mock_keyring, codex_home.path(), &expected)?;
 
@@ -557,11 +568,9 @@ fn factory_uses_secrets_backend_only_when_requested() -> anyhow::Result<()> {
     );
     let direct_auth = auth_with_prefix("factory-direct");
     direct_storage.save(&direct_auth)?;
-    assert!(
-        direct_keyring
-            .saved_value(&compute_store_key(direct_home.path())?)
-            .is_some()
-    );
+    assert!(direct_keyring
+        .saved_value(&compute_store_key(direct_home.path())?)
+        .is_some());
     assert!(!encrypted_auth_file(direct_home.path()).exists());
 
     let secrets_home = tempdir()?;
@@ -574,11 +583,9 @@ fn factory_uses_secrets_backend_only_when_requested() -> anyhow::Result<()> {
     );
     let secrets_auth = auth_with_prefix("factory-secrets");
     secrets_storage.save(&secrets_auth)?;
-    assert!(
-        secrets_keyring
-            .saved_value(&compute_keyring_account(secrets_home.path()))
-            .is_some()
-    );
+    assert!(secrets_keyring
+        .saved_value(&compute_keyring_account(secrets_home.path()))
+        .is_some());
     assert!(encrypted_auth_file(secrets_home.path()).exists());
     Ok(())
 }
@@ -607,6 +614,7 @@ fn secrets_keyring_auth_storage_save_persists_and_removes_fallback_file() -> any
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
 
     storage.save(&auth)?;

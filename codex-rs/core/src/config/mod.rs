@@ -856,6 +856,10 @@ pub struct Config {
     /// Combined provider map (defaults plus user-defined providers).
     pub model_providers: HashMap<String, ModelProviderInfo>,
 
+    /// Mixture-of-Agents presets (Hermes-style multi-model collaboration).
+    /// Converted from `[moa]` in config.toml; empty by default (MoA off).
+    pub moa: codex_moa::MoaConfig,
+
     /// Maximum total bytes of project instruction content across all selected environments.
     pub project_doc_max_bytes: usize,
 
@@ -2415,6 +2419,54 @@ fn thread_store_config(thread_store: Option<ThreadStoreToml>) -> ThreadStoreConf
         Some(ThreadStoreToml::Local {}) => ThreadStoreConfig::Local,
         Some(ThreadStoreToml::InMemory { id }) => ThreadStoreConfig::InMemory { id },
         None => ThreadStoreConfig::Local,
+    }
+}
+
+/// Convert `[moa]` from config.toml into the runtime [`codex_moa::MoaConfig`].
+///
+/// Mirrors Hermes `moa_config.py` cleaning: slots with an empty provider/model
+/// or with `provider == "moa"` are dropped so MoA can never recurse into
+/// itself. Absent sections yield an empty config (MoA off).
+fn moa_config_from_toml(moa: Option<codex_config::config_toml::MoaToml>) -> codex_moa::MoaConfig {
+    use codex_config::config_toml::{MoaPresetToml, MoaSlotToml};
+    use codex_moa::{MoaConfig, MoaModelSlot, MoaPreset};
+
+    fn clean_slot(slot: &MoaSlotToml) -> Option<MoaModelSlot> {
+        let provider = slot.provider.trim();
+        let model = slot.model.trim();
+        if provider.is_empty() || model.is_empty() || provider == codex_moa::MOA_PROVIDER_ID {
+            None
+        } else {
+            Some(MoaModelSlot {
+                provider: provider.to_string(),
+                model: model.to_string(),
+            })
+        }
+    }
+
+    fn clean_preset(preset: &MoaPresetToml) -> MoaPreset {
+        MoaPreset {
+            reference_models: preset.reference_models.iter().filter_map(clean_slot).collect(),
+            aggregator: preset
+                .aggregator
+                .as_ref()
+                .and_then(clean_slot)
+                .unwrap_or(codex_moa::MoaPreset::default().aggregator),
+            reference_temperature: preset.reference_temperature.unwrap_or(0.6),
+            aggregator_temperature: preset.aggregator_temperature.unwrap_or(0.4),
+            max_tokens: preset.max_tokens.unwrap_or(4096),
+            reference_max_tokens: preset.reference_max_tokens,
+            enabled: preset.enabled.unwrap_or(true),
+        }
+    }
+
+    let Some(moa) = moa else {
+        return MoaConfig::default();
+    };
+    MoaConfig {
+        default_preset: moa.default_preset,
+        active_preset: moa.active_preset,
+        presets: moa.presets.iter().map(|(name, preset)| (name.clone(), clean_preset(preset))).collect(),
     }
 }
 
@@ -4188,6 +4240,7 @@ impl Config {
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_OPTIONAL_MCP_STARTUP_GRACE),
             model_providers,
+            moa: moa_config_from_toml(cfg.moa.clone()),
             project_doc_max_bytes: cfg.project_doc_max_bytes.unwrap_or(AGENTS_MD_MAX_BYTES),
             project_doc_fallback_filenames: cfg
                 .project_doc_fallback_filenames

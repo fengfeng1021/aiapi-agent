@@ -227,6 +227,7 @@ mod mcp;
 mod mcp_prewarm;
 mod mcp_refresh;
 mod mcp_runtime;
+mod moa_caller;
 pub(crate) mod multi_agents;
 mod realtime_history;
 mod review;

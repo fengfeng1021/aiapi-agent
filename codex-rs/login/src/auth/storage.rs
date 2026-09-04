@@ -18,11 +18,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use tracing::warn;
 
+use super::google_oauth::GoogleOAuthTokens;
 use super::BedrockAccessKeysAuth;
 use super::BedrockApiKeyAuth;
 use crate::token_data::TokenData;
-use codex_agent_identity::AgentIdentityJwtClaims;
 use codex_agent_identity::decode_agent_identity_jwt;
+use codex_agent_identity::AgentIdentityJwtClaims;
 use codex_config::types::AuthCredentialsStoreMode;
 pub use codex_config::types::AuthKeyringBackendKind;
 use codex_keyring_store::DefaultKeyringStore;
@@ -62,6 +63,26 @@ pub struct AuthDotJson {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bedrock_access_keys: Option<BedrockAccessKeysAuth>,
+
+    /// Third-party OAuth credentials by provider id (e.g. `gemini-oauth`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<HashMap<String, GoogleOAuthTokens>>,
+}
+
+impl Default for AuthDotJson {
+    fn default() -> Self {
+        Self {
+            auth_mode: None,
+            openai_api_key: None,
+            tokens: None,
+            last_refresh: None,
+            agent_identity: None,
+            personal_access_token: None,
+            bedrock_api_key: None,
+            bedrock_access_keys: None,
+            providers: None,
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]

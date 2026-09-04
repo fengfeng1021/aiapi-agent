@@ -93,7 +93,7 @@ enabled = true
 
 ## 6. 驗證
 
-- `just test -p codex-model-provider-info` 驗證新增供應商
-- `cargo test -p codex-moa` 驗證 MoA 流程
-- `aiapi auth --provider gemini` 測試 Gemini 登入
-- `aiapi moa configure` 測試 MoA 預設編輯（鏡像 `hermes moa configure`）
+- `cargo test -p codex-model-provider-info` 驗證新增供應商
+- `cargo test -p codex-moa` 驗證 MoA 流程（11 tests：advisory view、synthesis、parallel refs、failure-as-notes、aggregator fallback）
+- `aiapi login --provider gemini` 測試 Gemini 登入（需先設 `GOOGLE_OAUTH_CLIENT_ID`／`GOOGLE_OAUTH_CLIENT_SECRET`；token 存於 `~/.codex/auth.json` 的 `providers.gemini-oauth`）
+- 前端：`desktop-shell` 已併入瀏覽器版的 MoA 設定 UI（`ui-settings-moa`），瀏覽器（`pnpm dsh web`）與桌面 MSI 共用同一套 UI

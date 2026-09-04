@@ -786,6 +786,7 @@ impl CodexAuth {
             personal_access_token: None,
             bedrock_api_key: None,
             bedrock_access_keys: None,
+            providers: None,
         };
 
         let state = ChatgptAuthState {
@@ -991,6 +992,7 @@ pub fn login_with_api_key(
         personal_access_token: None,
         bedrock_api_key: None,
         bedrock_access_keys: None,
+        providers: None,
     };
     save_auth(
         codex_home,
@@ -1025,6 +1027,7 @@ pub async fn login_with_access_token(
                 personal_access_token: Some(access_token.to_string()),
                 bedrock_api_key: None,
                 bedrock_access_keys: None,
+                providers: None,
             }
         }
         CodexAccessToken::AgentIdentityJwt(jwt) => {
@@ -1044,6 +1047,7 @@ pub async fn login_with_access_token(
                 personal_access_token: None,
                 bedrock_api_key: None,
                 bedrock_access_keys: None,
+                providers: None,
             }
         }
     };
@@ -1748,6 +1752,7 @@ impl AuthDotJson {
             personal_access_token: None,
             bedrock_api_key: None,
             bedrock_access_keys: None,
+            providers: None,
         })
     }
 

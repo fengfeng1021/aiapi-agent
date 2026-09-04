@@ -528,9 +528,12 @@ pub fn built_in_model_providers(
     // D:\Hermes\models_dev_cache.json. See docs/aiapi-integration.md.
     let gemini_provider = ModelProviderInfo {
         name: "Google Gemini".into(),
-        base_url: Some("https://generativelanguage.googleapis.com/v1beta".into()),
+        // OpenAI-compatible gateway path. The native `.../v1beta` root speaks
+        // the Gemini API, not Responses; `.../v1beta/openai/` is the
+        // Responses-compatible route.
+        base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai".into()),
         env_key: Some("GEMINI_API_KEY".into()),
-        env_key_instructions: Some("Set GEMINI_API_KEY or GOOGLE_API_KEY from https://aistudio.google.com/app/apikey".into()),
+        env_key_instructions: Some("Set GEMINI_API_KEY (or GOOGLE_API_KEY alias) from https://aistudio.google.com/app/apikey".into()),
         wire_api: WireApi::Responses,
         ..Default::default()
     };
@@ -551,7 +554,13 @@ pub fn built_in_model_providers(
     };
     let anthropic_provider = ModelProviderInfo {
         name: "Anthropic".into(),
-        base_url: Some("https://api.anthropic.com".into()),
+        // NOTE: the native Anthropic API (`/v1/messages` with x-api-key) is
+        // NOT Responses-compatible. This entry only works against an
+        // OpenAI-compatible gateway; override `base_url` in
+        // `[model_providers.anthropic]` to point at yours. User overrides
+        // always win for Aiapi-bundled provider ids (see
+        // `merge_configured_model_providers`).
+        base_url: Some("https://api.anthropic.com/v1".into()),
         env_key: Some("ANTHROPIC_API_KEY".into()),
         wire_api: WireApi::Responses,
         ..Default::default()
@@ -587,11 +596,24 @@ pub fn built_in_model_providers(
     .collect()
 }
 
+/// Provider ids bundled by Aiapi Agent on top of upstream defaults. Unlike
+/// upstream built-ins, user config always wins for these so a stale default
+/// (e.g. an Anthropic gateway move) can be corrected from config.toml
+/// without touching code.
+const AIAPI_OVERRIDABLE_PROVIDER_IDS: [&str; 4] = [
+    GEMINI_PROVIDER_ID,
+    AIAPI_PROVIDER_ID,
+    DEEPSEEK_PROVIDER_ID,
+    ANTHROPIC_PROVIDER_ID,
+];
+
 /// Merge configured providers into the built-in provider catalog.
 ///
 /// Configured providers extend the built-in set. Built-in providers are not
 /// generally overridable, but built-in Amazon Bedrock providers allow the user
 /// to customize their endpoint, authentication, headers, and AWS settings.
+/// Aiapi-bundled provider ids (see [`AIAPI_OVERRIDABLE_PROVIDER_IDS`]) are
+/// fully replaced by user config so stale defaults stay correctable.
 pub fn merge_configured_model_providers(
     mut model_providers: HashMap<String, ModelProviderInfo>,
     configured_model_providers: HashMap<String, ModelProviderInfo>,
@@ -626,6 +648,8 @@ other non-default provider fields are not supported"
                         .extend(http_headers_override);
                 }
             }
+        } else if AIAPI_OVERRIDABLE_PROVIDER_IDS.contains(&key.as_str()) {
+            model_providers.insert(key, provider);
         } else {
             model_providers.entry(key).or_insert(provider);
         }

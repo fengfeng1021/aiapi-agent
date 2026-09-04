@@ -563,6 +563,52 @@ impl ModelClient {
         }
     }
 
+    /// Derive a sibling client bound to a different provider (MoA slots).
+    ///
+    /// Shares thread/session identity with `self` but gets a fresh provider,
+    /// fresh telemetry, and a fresh websocket cache so slot calls never reuse
+    /// the main turn's sticky-routing token or incremental-request state.
+    pub(crate) fn fork_for_provider(&self, provider_info: ModelProviderInfo) -> Self {
+        let auth_manager = self.auth_manager();
+        let provider = create_model_provider(provider_info, auth_manager);
+        let codex_api_key_env_enabled = provider
+            .auth_manager()
+            .as_ref()
+            .is_some_and(|manager| manager.codex_api_key_env_enabled());
+        let auth_env_telemetry =
+            collect_auth_env_telemetry(provider.info(), codex_api_key_env_enabled);
+        let old = &self.state;
+        Self {
+            state: Arc::new(ModelClientState {
+                thread_id: old.thread_id,
+                provider,
+                auth_env_telemetry,
+                session_source: old.session_source.clone(),
+                originator: old.originator.clone(),
+                model_verbosity: old.model_verbosity,
+                content_item_kinds_enabled: old.content_item_kinds_enabled,
+                enable_request_compression: old.enable_request_compression,
+                include_timing_metrics: old.include_timing_metrics,
+                beta_features_header: old.beta_features_header.clone(),
+                concurrent_reasoning_summaries_enabled: old
+                    .concurrent_reasoning_summaries_enabled,
+                include_attestation: old.include_attestation,
+                attestation_provider: old.attestation_provider.clone(),
+                disable_websockets: AtomicBool::new(
+                    old.disable_websockets.load(Ordering::Relaxed),
+                ),
+                agent_identity_session_fallback:
+                    AgentIdentitySessionFallback::default(),
+                cached_websocket_session: StdMutex::new(WebsocketSession::default()),
+            }),
+            agent_identity_policy: self.agent_identity_policy.clone(),
+            prompt_cache_key_override: self.prompt_cache_key_override.clone(),
+            free_guardian_enabled: self.free_guardian_enabled,
+            event_sender: self.event_sender.clone(),
+            http_client_factory: self.http_client_factory.clone(),
+        }
+    }
+
     pub(crate) fn auth_manager(&self) -> Option<Arc<AuthManager>> {
         self.state.provider.auth_manager()
     }

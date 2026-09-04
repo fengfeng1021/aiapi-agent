@@ -2,7 +2,13 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "codex-moa",
-    srcs = ["src/lib.rs"],
+    srcs = [
+        "src/advisory.rs",
+        "src/advisory_tests.rs",
+        "src/lib.rs",
+        "src/run.rs",
+        "src/run_tests.rs",
+    ],
     edition = "2021",
     deps = [
         "@crates//:schemars",

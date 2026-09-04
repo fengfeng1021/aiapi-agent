@@ -2052,6 +2052,78 @@
       },
       "type": "object"
     },
+    "MoaPresetToml": {
+      "additionalProperties": false,
+      "properties": {
+        "aggregator": {
+          "$ref": "#/definitions/MoaSlotToml"
+        },
+        "aggregator_temperature": {
+          "format": "float",
+          "type": "number"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "max_tokens": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reference_max_tokens": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "reference_models": {
+          "default": [],
+          "items": {
+            "$ref": "#/definitions/MoaSlotToml"
+          },
+          "type": "array"
+        },
+        "reference_temperature": {
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "MoaSlotToml": {
+      "properties": {
+        "model": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "MoaToml": {
+      "additionalProperties": false,
+      "description": "MoA configuration - mirrors Hermes moa_config.py",
+      "properties": {
+        "active_preset": {
+          "type": "string"
+        },
+        "default_preset": {
+          "type": "string"
+        },
+        "presets": {
+          "additionalProperties": {
+            "$ref": "#/definitions/MoaPresetToml"
+          },
+          "default": {},
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
     "ModelAvailabilityNuxConfig": {
       "additionalProperties": {
         "format": "uint32",
@@ -6448,6 +6520,14 @@
         }
       ],
       "description": "Memories subsystem settings."
+    },
+    "moa": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/MoaToml"
+        }
+      ],
+      "description": "Mixture-of-Agents configuration (ported from Hermes D:\\Hermes\\config.yaml:116)."
     },
     "model": {
       "description": "Optional override of model selection.",

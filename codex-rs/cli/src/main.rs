@@ -17,6 +17,7 @@ use codex_cli::run_login_with_access_token;
 use codex_cli::run_login_with_api_key;
 use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
+use codex_cli::run_login_with_google;
 use codex_cli::run_logout;
 use codex_cloud_config::cloud_config_bundle_loader_for_storage;
 use codex_cloud_tasks::Cli as CloudTasksCli;
@@ -515,6 +516,11 @@ struct LoginCommand {
 
     #[arg(long = "device-auth")]
     use_device_code: bool,
+
+    /// OAuth provider id for browser login (e.g. `gemini`).
+    /// Defaults to the ChatGPT flow when omitted.
+    #[arg(long = "provider", value_name = "PROVIDER")]
+    provider: Option<String>,
 
     /// EXPERIMENTAL: Use custom OAuth issuer base URL (advanced)
     /// Override the OAuth issuer base URL (advanced)
@@ -1526,18 +1532,33 @@ async fn cli_main(
                     run_login_status(login_cli.config_overrides).await;
                 }
                 None => {
-                    if login_cli.with_api_key && login_cli.with_access_token {
+                    let credential_sources = [
+                        ("--with-api-key", login_cli.with_api_key),
+                        ("--with-access-token", login_cli.with_access_token),
+                        ("--device-auth", login_cli.use_device_code),
+                        ("--provider", login_cli.provider.is_some()),
+                        ("--api-key", login_cli.api_key.is_some()),
+                    ];
+                    let chosen: Vec<&str> = credential_sources
+                        .iter()
+                        .filter_map(|(flag, set)| set.then_some(*flag))
+                        .collect();
+                    if chosen.len() > 1 {
                         eprintln!(
-                            "Choose one login credential source: --with-api-key or --with-access-token."
+                            "Choose one login credential source: {}.",
+                            chosen.join(" or ")
                         );
                         std::process::exit(1);
-                    } else if login_cli.use_device_code {
+                    }
+                    if login_cli.use_device_code {
                         run_login_with_device_code(
                             login_cli.config_overrides,
                             login_cli.issuer_base_url,
                             login_cli.client_id,
                         )
                         .await;
+                    } else if let Some(provider) = login_cli.provider {
+                        run_login_with_google(login_cli.config_overrides, provider).await;
                     } else if login_cli.api_key.is_some() {
                         eprintln!(
                             "The --api-key flag is no longer supported. Pipe the key instead, e.g. `printenv OPENAI_API_KEY | codex login --with-api-key`."

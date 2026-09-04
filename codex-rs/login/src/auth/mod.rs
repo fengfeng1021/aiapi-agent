@@ -11,7 +11,7 @@ mod util;
 mod workload_identity;
 
 mod external_bearer;
-mod google_oauth;
+pub mod google_oauth;
 mod manager;
 mod revoke;
 

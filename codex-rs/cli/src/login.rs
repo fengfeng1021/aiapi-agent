@@ -8,20 +8,20 @@
 //! support can request from users.
 
 use codex_config::types::AuthCredentialsStoreMode;
-use codex_core::config::Config;
 use codex_core::config::edit::ConfigEdit;
 use codex_core::config::edit::ConfigEditsBuilder;
-use codex_login::AuthKeyringBackendKind;
-use codex_login::AuthManager;
-use codex_login::AuthRouteConfig;
-use codex_login::CLIENT_ID;
-use codex_login::ServerOptions;
+use codex_core::config::Config;
 use codex_login::is_workload_identity_selected;
 use codex_login::login_with_access_token;
 use codex_login::login_with_api_key;
 use codex_login::logout_with_revoke;
 use codex_login::run_device_code_login;
 use codex_login::run_login_server;
+use codex_login::AuthKeyringBackendKind;
+use codex_login::AuthManager;
+use codex_login::AuthRouteConfig;
+use codex_login::ServerOptions;
+use codex_login::CLIENT_ID;
 use codex_protocol::auth::AuthMode;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_utils_cli::CliConfigOverrides;
@@ -32,10 +32,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use tracing_appender::non_blocking;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
 
 const CHATGPT_LOGIN_DISABLED_MESSAGE: &str =
     "ChatGPT login is disabled. Use API key login instead.";
@@ -165,6 +165,60 @@ pub async fn login_with_chatgpt(
     print_login_server_start(server.actual_port, &server.auth_url);
 
     server.block_until_done().await
+}
+
+pub async fn run_login_with_google(
+    cli_config_overrides: CliConfigOverrides,
+    provider: String,
+) -> ! {
+    use codex_login::auth::google_oauth::login_instructions;
+    use codex_login::auth::google_oauth::run_google_oauth_login;
+    use codex_login::auth::google_oauth::save_provider_tokens;
+    use codex_login::auth::google_oauth::GoogleOAuthConfig;
+    use codex_login::auth::google_oauth::GEMINI_OAUTH_PROVIDER_ID;
+
+    let config = load_config_or_exit(cli_config_overrides).await;
+    let _login_log_guard = init_login_file_logging(&config);
+    tracing::info!("starting google oauth login flow");
+
+    let normalized = provider.trim().to_lowercase();
+    let provider_id = match normalized.as_str() {
+        "" | "gemini" | "gemini-oauth" | "google" => GEMINI_OAUTH_PROVIDER_ID.to_string(),
+        "antigravity" => GEMINI_OAUTH_PROVIDER_ID.to_string(),
+        other => {
+            eprintln!(
+                "Unknown OAuth provider '{other}'. Supported: gemini (Google OAuth)."
+            );
+            std::process::exit(1);
+        }
+    };
+    let oauth_config = match GoogleOAuthConfig::from_env(&provider_id) {
+        Ok(config) => config,
+        Err(err) => {
+            eprintln!("{err}\n\n{}", login_instructions());
+            std::process::exit(1);
+        }
+    };
+    match run_google_oauth_login(&oauth_config).await {
+        Ok(tokens) => {
+            if let Err(err) = save_provider_tokens(
+                &config.codex_home,
+                &provider_id,
+                &tokens,
+                config.cli_auth_credentials_store_mode,
+                config.auth_keyring_backend_kind(),
+            ) {
+                eprintln!("Signed in with Google, but failed to save credentials: {err}");
+                std::process::exit(1);
+            }
+            eprintln!("{LOGIN_SUCCESS_MESSAGE} (provider: {provider_id})");
+            std::process::exit(0);
+        }
+        Err(e) => {
+            eprintln!("Error logging in with Google: {e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 pub async fn run_login_with_chatgpt(cli_config_overrides: CliConfigOverrides) -> ! {
@@ -588,9 +642,9 @@ fn safe_format_key(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     use codex_config::types::AuthCredentialsStoreMode;
-    use codex_login::AuthKeyringBackendKind;
     use codex_login::load_auth_dot_json;
     use codex_login::login_with_api_key;
+    use codex_login::AuthKeyringBackendKind;
     use pretty_assertions::assert_eq;
     use tempfile::tempdir;
 

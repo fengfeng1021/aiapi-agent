@@ -1,12 +1,25 @@
 //! Mixture-of-Agents (MoA) virtual provider for Aiapi Agent.
-//! Ports Hermes `D:\Hermes\hermes-agent\agent\moa_loop.py` + `hermes_cli/moa_config.py`
+//!
+//! Full port of Hermes `hermes-agent/agent/moa_loop.py` + `moa_config.py`
 //! into Rust so Codex can run Hermes-style multi-model collaboration.
 //!
-//! Config shape mirrors `D:\Hermes\config.yaml:116`:
-//! ```yaml
-//! moa:
-//!   presets: { default: { reference_models: [...], aggregator: {...} } }
-//! ```
+//! Layout:
+//! - [`advisory`]: pure helpers (advisory view, prompts, guidance wrapper).
+//! - [`run`]: turn orchestration behind [`run::MoaLlmCaller`] (parallel
+//!   references + aggregator synthesis, failures-as-notes, fallback).
+//!
+//! Config shape mirrors Hermes `config.yaml` `moa:` section.
+
+pub mod advisory;
+pub mod run;
+
+pub use advisory::{
+    build_aggregator_prompt, build_guidance, build_reference_messages, build_synthesis_prompt,
+    render_tool_calls, slot_label, truncate_tool_result, ChatMessage, ToolCall,
+    ADVISORY_INSTRUCTION, MAX_REFERENCE_WORKERS, REFERENCE_SYSTEM_PROMPT,
+    REFERENCE_TOOL_RESULT_BUDGET,
+};
+pub use run::{run_moa_turn, MoaEvent, MoaLlmCaller, ReferenceOutput};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -41,17 +54,34 @@ pub struct MoaPreset {
 
 fn default_reference_models() -> Vec<MoaModelSlot> {
     vec![
-        MoaModelSlot { provider: "openai".into(), model: "gpt-5.4".into() },
-        MoaModelSlot { provider: "gemini".into(), model: "gemini-3.7-flash".into() },
+        MoaModelSlot {
+            provider: "openai".into(),
+            model: "gpt-5.4".into(),
+        },
+        MoaModelSlot {
+            provider: "gemini".into(),
+            model: "gemini-3.7-flash".into(),
+        },
     ]
 }
 fn default_aggregator() -> MoaModelSlot {
-    MoaModelSlot { provider: "openai".into(), model: "gpt-5.1-codex".into() }
+    MoaModelSlot {
+        provider: "openai".into(),
+        model: "gpt-5.1-codex".into(),
+    }
 }
-fn default_ref_temp() -> f32 { 0.6 }
-fn default_agg_temp() -> f32 { 0.4 }
-fn default_max_tokens() -> u32 { 4096 }
-fn default_true() -> bool { true }
+fn default_ref_temp() -> f32 {
+    0.6
+}
+fn default_agg_temp() -> f32 {
+    0.4
+}
+fn default_max_tokens() -> u32 {
+    4096
+}
+fn default_true() -> bool {
+    true
+}
 
 impl Default for MoaPreset {
     fn default() -> Self {
@@ -84,8 +114,19 @@ impl MoaConfig {
         if presets.is_empty() {
             presets.insert(DEFAULT_MOA_PRESET_NAME.into(), MoaPreset::default());
         }
-        let default_name = self.default_preset.clone().unwrap_or_else(|| DEFAULT_MOA_PRESET_NAME.into());
-        let default_name = if presets.contains_key(&default_name) { default_name } else { presets.keys().next().unwrap().clone() };
+        let default_name = self
+            .default_preset
+            .clone()
+            .unwrap_or_else(|| DEFAULT_MOA_PRESET_NAME.into());
+        let default_name = if presets.contains_key(&default_name) {
+            default_name
+        } else {
+            presets
+                .keys()
+                .next()
+                .cloned()
+                .unwrap_or_else(|| DEFAULT_MOA_PRESET_NAME.into())
+        };
         let active = presets.get(&default_name).cloned().unwrap_or_default();
         NormalizedMoaConfig {
             default_preset: default_name,
@@ -100,6 +141,7 @@ impl MoaConfig {
             enabled: active.enabled,
         }
     }
+
     pub fn resolve_preset(&self, name: Option<&str>) -> Option<MoaPreset> {
         let n = self.normalized();
         let key = name.unwrap_or(&n.default_preset);
@@ -121,21 +163,6 @@ pub struct NormalizedMoaConfig {
     pub enabled: bool,
 }
 
-/// Build aggregator prompt from user prompt + reference outputs.
-/// Mirrors `agent/moa_loop.py` in Hermes.
-pub fn build_aggregator_prompt(user_prompt: &str, references: &[(MoaModelSlot, String)]) -> String {
-    let mut out = String::new();
-    out.push_str("You are the aggregator for a Mixture-of-Agents system. Synthesize the following reference answers into a single high-quality response.\n\n");
-    out.push_str("Original user prompt:\n");
-    out.push_str(user_prompt);
-    out.push_str("\n\nReference answers:\n");
-    for (idx, (slot, text)) in references.iter().enumerate() {
-        out.push_str(&format!("\n--- Reference {} ({}:{}) ---\n{}\n", idx+1, slot.provider, slot.model, text));
-    }
-    out.push_str("\nProvide the final aggregated answer. Be concise, accurate, and actionable. Do not reveal you are an aggregator.");
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,10 +175,25 @@ mod tests {
     }
     #[test]
     fn aggregator_prompt_contains_all() {
-        let p = build_aggregator_prompt("hello", &[
-            (MoaModelSlot{provider:"openai".into(), model:"gpt-5".into()}, "answer A".into()),
-            (MoaModelSlot{provider:"gemini".into(), model:"gemini-3".into()}, "answer B".into()),
-        ]);
+        let p = build_aggregator_prompt(
+            "hello",
+            &[
+                (
+                    MoaModelSlot {
+                        provider: "openai".into(),
+                        model: "gpt-5".into(),
+                    },
+                    "answer A".into(),
+                ),
+                (
+                    MoaModelSlot {
+                        provider: "gemini".into(),
+                        model: "gemini-3".into(),
+                    },
+                    "answer B".into(),
+                ),
+            ],
+        );
         assert!(p.contains("answer A"));
         assert!(p.contains("answer B"));
     }
