@@ -1,0 +1,176 @@
+.sliderContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px 10px;
+  border-radius: 12px;
+  background: var(--dsh-color-bg-card, #ffffff);
+  border: 1px solid var(--dsh-color-border, #e5e7eb);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+
+.sliderContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 18px 10px;
+  border-radius: 12px;
+  background: var(--dsh-color-bg-card, #ffffff);
+  border: 1px solid var(--dsh-color-border, #e5e7eb);
+  box-shadow: 0 2px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.titleWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.iconGlow {
+  color: #6366f1;
+  display: flex;
+  align-items: center;
+}
+
+.titleText {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--dsh-color-text-primary, #111827);
+  letter-spacing: -0.01em;
+}
+
+.modeBadge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(168, 85, 247, 0.12));
+  color: #4f46e5;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+}
+
+.trackInteractiveArea {
+  position: relative;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  padding: 0 6px;
+}
+
+.trackInteractiveArea.dragging {
+  cursor: grabbing;
+}
+
+.trackBase {
+  position: relative;
+  width: 100%;
+  height: 7px;
+  border-radius: 9999px;
+  background: #e5e7eb;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.trackFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #6366f1 0%, #a855f7 100%);
+}
+
+.stopDot {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d1d5db;
+  transform: translate(-50%, -50%);
+  transition: background 0.2s;
+  pointer-events: none;
+}
+
+.stopDotActive {
+  background: #ffffff;
+  box-shadow: 0 0 4px rgba(99, 102, 241, 0.6);
+}
+
+.knob {
+  position: absolute;
+  top: 50%;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2.5px solid #6366f1;
+  box-shadow: 0 3px 10px rgba(99, 102, 241, 0.5), 0 1px 3px rgba(0, 0, 0, 0.12);
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.1s ease, border-color 0.1s ease;
+  pointer-events: none;
+}
+
+.knobDragging {
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow: 0 5px 18px rgba(99, 102, 241, 0.7), 0 2px 5px rgba(0, 0, 0, 0.2);
+  border-color: #4f46e5;
+}
+
+.knobCore {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+}
+
+.labelsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.labelBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsh-color-text-tertiary, #9ca3af);
+  transition: all 0.15s ease;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.labelBtn:hover {
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.labelBtnActive {
+  color: #4f46e5;
+  font-weight: 700;
+}
+
+.tagline {
+  font-size: 11.5px;
+  color: var(--dsh-color-text-secondary, #6b7280);
+  text-align: center;
+  margin-top: -2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

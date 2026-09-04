@@ -1,0 +1,24 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.lightLogo {
+  display: block;
+  object-fit: contain;
+}
+
+.darkLogo {
+  display: none;
+  object-fit: contain;
+}
+
+:global(body[data-ds-dark-theme]) .lightLogo {
+  display: none;
+}
+
+:global(body[data-ds-dark-theme]) .darkLogo {
+  display: block;
+}

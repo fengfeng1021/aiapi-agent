@@ -1,0 +1,20 @@
+# The interactive terminal surface over dsh-base. This bundle owns only its
+# surface-specific values and stdio transport; all agent capabilities remain
+# in dsh-base so profile and home patch layers can extend or replace them.
+
+- id: system-prompt
+  config:
+    persona: >-
+      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+
+- id: tools
+  config:
+    mode: !!js process.env.DSH_TOOLS_MODE
+
+- insert:
+    # stdout belongs exclusively to this newline-delimited JSON-RPC server.
+    # The terminal client renders the protocol notifications in its own UI.
+    - id: sdk-jsonrpc-server
+      name: '@deepseek-ai/dsh-sdk-jsonrpc-server'
+      config:
+        maxTokensAsSuccess: true

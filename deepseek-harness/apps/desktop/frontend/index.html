@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>Aiapi Agent — Autonomous Intelligence Workstation</title>
+    <link rel="stylesheet" href="styles.css?v=4">
+  </head>
+  <body data-state="starting">
+    <main class="startup-shell">
+      <aside class="intro-panel" aria-labelledby="product-title">
+        <div class="brand-row">
+          <!-- Authentic Aiapi Brand Mark -->
+          <img src="logo.png" width="32" height="32" alt="Aiapi" style="flex-shrink: 0; object-fit: contain;" />
+          <span class="brand-title">Aiapi</span>
+          <span class="brand-edition">AGENT</span>
+        </div>
+        <div class="intro-copy">
+          <p class="once-badge"><span aria-hidden="true">✓</span>首次设置 · 仅显示一次</p>
+          <h1 id="product-title">准备 Agent 自主工作空间</h1>
+          <p>正在配置高精度智能体本地运行架构。完成后将直接进入工作台。</p>
+        </div>
+
+        <ol class="stages" aria-label="环境准备阶段">
+          <li class="active" data-threshold="28">
+            <span class="stage-marker" aria-hidden="true">1</span>
+            <span class="stage-copy"><strong>环境检测</strong><small>检查系统运行环境与内核</small></span>
+          </li>
+          <li data-threshold="72">
+            <span class="stage-marker" aria-hidden="true">2</span>
+            <span class="stage-copy"><strong>运行时配置</strong><small>准备智能体核心推理引擎</small></span>
+          </li>
+          <li data-threshold="84">
+            <span class="stage-marker" aria-hidden="true">3</span>
+            <span class="stage-copy"><strong>系统适配</strong><small>调优本地模型与沙箱环境</small></span>
+          </li>
+          <li data-threshold="100">
+            <span class="stage-marker" aria-hidden="true">4</span>
+            <span class="stage-copy"><strong>服务验证</strong><small>确认工作台本地服务就绪</small></span>
+          </li>
+        </ol>
+
+        <div class="local-note">
+          <span class="local-note-icon" aria-hidden="true">⌂</span>
+          <div>
+            <strong>本地私密运行环境</strong>
+            <span>独立安全沙箱，不上传您的私有上下文</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="status-panel" aria-live="polite" aria-labelledby="status-zh">
+        <header class="status-header">
+          <div>
+            <p class="header-title">本地运行架构</p>
+            <p id="phase-label" class="phase-label">环境检测</p>
+          </div>
+          <span class="header-once">仅需设置一次</span>
+        </header>
+
+        <div class="status-body">
+          <div class="status-copy">
+            <p class="status-kicker">正在初始化 Aiapi Agent 工作站</p>
+            <h2 id="status-zh">正在检测系统环境…</h2>
+            <p id="status-en" lang="en">Checking system environment…</p>
+          </div>
+
+          <div class="progress-heading">
+            <span>初始化进度</span>
+            <span id="progress-value" class="progress-value">1%</span>
+          </div>
+          <progress
+            id="progress"
+            class="progress"
+            value="1"
+            max="100"
+            aria-label="启动环境准备进度"
+            aria-valuemin="1"
+            aria-valuemax="100"
+            aria-valuenow="1"
+            aria-valuetext="1%，正在检测环境"
+          >1%</progress>
+
+          <div class="expectation-note">
+            <span class="expectation-icon" aria-hidden="true">i</span>
+            <div>
+              <strong>完成后将自动进入工作台</strong>
+              <p>初始化结果会保存在本机，以后启动将毫秒级直达工作空间。</p>
+            </div>
+          </div>
+
+          <section id="recovery" class="recovery" hidden aria-label="启动恢复选项">
+            <p id="recovery-guidance" class="recovery-guidance"></p>
+            <details id="technical-details" class="technical-details">
+              <summary>查看技术详情</summary>
+              <pre id="details"></pre>
+            </details>
+            <div class="recovery-actions">
+              <a id="retry-startup" class="action action-primary" href="dsh-action://retry">重新尝试</a>
+              <button id="copy-diagnostics" class="action" type="button">复制诊断信息</button>
+              <a class="action" href="dsh-action://diagnostics">打开日志目录</a>
+              <a class="action action-quiet" href="dsh-action://quit">退出</a>
+            </div>
+            <p id="recovery-feedback" class="recovery-feedback" aria-live="polite"></p>
+          </section>
+
+          <footer class="status-footer">
+            <span class="activity-dot" aria-hidden="true"></span>
+            <span id="activity-text">请保持应用开启，通常只需片刻</span>
+          </footer>
+        </div>
+      </section>
+    </main>
+    <script src="app.js?v=4"></script>
+  </body>
+</html>

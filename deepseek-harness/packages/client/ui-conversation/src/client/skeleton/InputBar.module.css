@@ -1,0 +1,458 @@
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Side pads ride the shared clearance (figma Input_Bottom drew L32/R32/B8;
+     the sides narrow with the shared width axis); the bottom gradient mask
+     is owned by the chat scroller. No top pad: the composer stack's gap owns
+     the space above; the status strip still carries its own margin. */
+  padding: 0 var(--dsh-composer-side-clearance) 8px;
+}
+
+.hero {
+  /* No bottom pad in the centered hero, but the side clearance must survive:
+     the hero wrapper is full-width on narrow viewports, so this padding is
+     the only thing keeping the card off the edges there. */
+  padding: 0 var(--dsh-composer-side-clearance);
+}
+
+.notice {
+  width: 100%;
+  max-width: var(--dsh-composer-card-max-width);
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.card {
+  box-sizing: border-box;
+  position: relative; /* overlay anchor positioning context */
+  display: flex;
+  flex-direction: column;
+  /* figma Input 75:8208: 12px between the text area and the button row; 10px
+     top pad on the card before .InputText. */
+  gap: 12px;
+  width: 100%;
+  max-width: var(--dsh-composer-card-max-width);
+  padding: 12px 16px 12px;
+  /* Apple Liquid Glass (Light Mode): Crystal-clear translucent glass with crisp edge contrast */
+  border-radius: 26px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.3) 100%);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1.5px solid #ffffff;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 18px 44px -8px rgba(0, 0, 0, 0.1),
+    0 4px 14px -2px rgba(0, 0, 0, 0.04),
+    inset 0 1.5px 2px 0 #ffffff,
+    inset 0 -1px 2px 0 rgba(255, 255, 255, 0.4);
+  transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+.card:focus-within {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: #ffffff;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.45) 100%);
+  box-shadow:
+    0 24px 56px -8px rgba(0, 0, 0, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.8),
+    inset 0 1.5px 2px 0 #ffffff;
+}
+
+:global(body[data-ds-dark-theme]) .card {
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-top: 1.5px solid rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(18, 18, 22, 0.45);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  box-shadow:
+    0 28px 70px -16px rgba(0, 0, 0, 0.85),
+    0 8px 24px -4px rgba(0, 0, 0, 0.4),
+    inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.4);
+}
+
+:global(body[data-ds-dark-theme]) .card:focus-within {
+  border-color: rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(24, 24, 30, 0.55);
+  box-shadow:
+    0 36px 80px -16px rgba(0, 0, 0, 0.95),
+    0 0 0 1px rgba(255, 255, 255, 0.15),
+    inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.35);
+}
+
+/* Workspace trigger state: smooth frosted glass affordance */
+.cardWorkspaceTrigger {
+  cursor: pointer;
+  transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cardWorkspaceTrigger:hover {
+  border-color: rgba(255, 255, 255, 0.95);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.3) 100%);
+  box-shadow:
+    0 26px 56px -10px rgba(0, 0, 0, 0.09),
+    0 6px 18px -2px rgba(0, 0, 0, 0.03),
+    inset 0 1.5px 2px 0 #ffffff;
+  transform: translateY(-1px);
+}
+
+:global(body[data-ds-dark-theme]) .cardWorkspaceTrigger:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.5);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(22, 22, 28, 0.55);
+  box-shadow:
+    0 28px 68px -14px rgba(0, 0, 0, 0.8),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Disabled toolbar controls neither receive nor swallow clicks in the trigger
+   state: pointer events fall through to the card's own click handler, making
+   the full capsule one pick target. */
+.cardWorkspaceTrigger :disabled {
+  pointer-events: none;
+}
+
+.accessory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+}
+
+/* Floating overlay anchor (menu / popupSelect shell): entries position
+   themselves against the card (bottom: 100% + gap); closed entries render null. */
+.overlayAnchor {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 0;
+}
+
+/* The draft's scrollport, and the ONLY scrolling box in the composer. The
+   contenteditable grows with its content inside; the 14-line cap lives here
+   because this is the box the cap describes. */
+.scroll {
+  max-height: var(--dsh-composer-text-max-height);
+  overflow-y: auto;
+  /* Keeps the bar off the card's right border; .input's right pad gives the
+     4px back so the text column is unchanged. */
+  margin-right: 4px;
+}
+
+/* The card's 22px corner arc still overlaps the scrollport's top (10px top
+   pad reaches only y=10): start the thumb's travel below the arc so it never
+   pokes outside the capsule. WebKit-path only; Firefox's thin bar has no
+   track margin, an accepted remainder. */
+.scroll::-webkit-scrollbar-track {
+  margin-top: 8px;
+}
+
+/* Auto-grow anchor: the contenteditable is in normal flow and sets the
+   draft's height; the placeholder rides it absolutely. */
+.grow {
+  position: relative;
+}
+
+/* Machine pending dot (adjudicating / submitting). */
+.pending {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+  animation: input-pending 1s ease-in-out infinite alternate;
+}
+
+@keyframes input-pending {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+/* The contenteditable draft surface (grows with its content; .scroll caps
+   and scrolls it). figma .InputText 34:10434: pl 16 / pr 12 / pt 4 — the
+   right pad is 8 here plus .scroll's 4px bar inset. */
+.input {
+  box-sizing: border-box;
+  padding: 4px 8px 0 16px;
+  font-family: var(--dsw-font-family);
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  outline: none;
+  color: var(--dsw-alias-label-primary);
+  /* Business blue, not brand-primary: that token resolves to ink in this sheet. */
+  caret-color: var(--dsw-alias-state-business-primary);
+}
+
+/* Lexical paragraphs are <p> blocks: strip the UA margins so the surface
+   keeps the textarea's line rhythm. */
+.input p {
+  margin: 0;
+}
+
+/* Claim ghost hint as generated content after the last paragraph: the bar
+   sets --dsh-composer-hint (a quoted string) while the claim's args are
+   blank; without the variable the declaration is invalid and nothing shows. */
+.input p:last-child::after {
+  content: var(--dsh-composer-hint);
+  color: var(--dsw-alias-label-caption);
+}
+
+/* figma 34:10434: #ADB2B8 light / #81858C dark — the caption pair exactly.
+   Right inset mirrors .input's 8px pad (the other 4px sits on .scroll). */
+.placeholder {
+  position: absolute;
+  inset: 4px 8px auto 16px;
+  color: var(--dsw-alias-label-caption);
+  pointer-events: none;
+  user-select: none;
+}
+
+.inputDisabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: not-allowed;
+}
+
+.input[aria-haspopup='menu'] {
+  cursor: pointer;
+}
+
+/* Hero (centered empty-state) keeps the 2-line floor (figma min-h 52 = ~2 × 24
+   line + 4pt); the docked composer collapses to the content height. */
+.hero .input {
+  min-height: 52px;
+}
+
+/* Toolbar: attach + Plan + Read-only on the left; model + send on the right
+   (figma Input_Bottom chrome). */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* 2px moved from the bottom pad to the top: the whole control row sits 2px
+     lower in the card (it read too high against the textarea) while the card
+     height and the controls' own centering stay untouched. */
+  padding: 2px 8px 6px;
+  min-width: 0;
+  /* Size container so the chips inside can collapse to icon-only when the
+     card runs out of row width (PermissionSelect @container rule). Anonymous
+     on purpose: CSS modules hash container-name per module, so a name declared
+     here can never match a query in another module's sheet. */
+  container-type: inline-size;
+}
+
+.tools,
+.modes,
+.trailing {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* figma 75:8208 drew 16 between + and the mode chips and 4 between Plan /
+   Read-only; the chip gap widened to 12 so the pill chips read as separate
+   controls. */
+.tools {
+  gap: 16px;
+}
+
+.modes {
+  gap: 12px;
+}
+
+.trailing {
+  flex: none;
+  /* Wrap keeps the left mode chips and the right controls apart when the card
+     runs out of row width: the trailing group (model + send) moves to its own
+     line instead of the left group shrinking until its chip overlaps the
+     model trigger (external:107). The auto margin re-anchors it right on the
+     wrapped line; on a single line space-between already pins it right. */
+  margin-left: auto;
+  gap: 12px;
+}
+
+/* Attach button: liquid glass round control */
+.add {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid #ffffff;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
+  color: #1d1d1f;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 1px #ffffff;
+  transition: all 160ms ease;
+}
+
+.add:hover:not(:disabled) {
+  background: #ffffff;
+  border-color: rgba(0, 0, 0, 0.16);
+  transform: scale(1.05);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08), inset 0 1px 1px #ffffff;
+}
+
+.add:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+:global(body[data-ds-dark-theme]) .add {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1px solid rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.22);
+}
+
+:global(body[data-ds-dark-theme]) .add:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+/* Plan / Read-only / model — liquid glass pill */
+.select {
+  max-width: 220px;
+  height: 28px;
+  padding: 0 22px 0 10px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid #ffffff;
+  border-radius: 999px;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.85);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%231d1d1f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 12px 12px;
+  color: #48484a;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  appearance: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), inset 0 1px 1px #ffffff;
+  transition: all 160ms ease;
+}
+
+.select:hover:not(:disabled) {
+  background-color: #ffffff;
+  border-color: rgba(0, 0, 0, 0.18);
+  color: #1d1d1f;
+}
+
+.select:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+:global(body[data-ds-dark-theme]) .select {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.28);
+  background-color: rgba(255, 255, 255, 0.06);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%23ffffff' stroke-opacity='0.6' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color: var(--dsw-alias-label-secondary);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.16);
+}
+
+:global(body[data-ds-dark-theme]) .select:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+}
+
+/* Primary send: Apple Liquid Glass spherical orb */
+.primary {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 999px;
+  /* Light Mode: Apple 3D Obsidian Crystal Sphere */
+  background: radial-gradient(circle at 35% 25%, #3a3b3e 0%, #1c1d20 55%, #000000 100%);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform: translateY(-2px);
+  box-shadow:
+    0 4px 14px rgba(0, 0, 0, 0.28),
+    0 1px 3px rgba(0, 0, 0, 0.15),
+    inset 0 1.5px 2px rgba(255, 255, 255, 0.4),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.5);
+}
+
+.primary:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.08);
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.35),
+    inset 0 2px 3px rgba(255, 255, 255, 0.6);
+}
+
+.primary:disabled {
+  opacity: 0.35;
+  cursor: default;
+  transform: translateY(-2px);
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.25);
+}
+
+:global(body[data-ds-dark-theme]) .primary {
+  /* Dark Mode: Apple 3D White Pearl Glass Sphere */
+  background: radial-gradient(circle at 35% 25%, #ffffff 0%, #eaebee 45%, #c2c5cd 100%);
+  color: #000000;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.45),
+    0 1px 3px rgba(0, 0, 0, 0.2),
+    inset 0 2px 3px rgba(255, 255, 255, 1),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.25);
+}
+
+:global(body[data-ds-dark-theme]) .primary:hover:not(:disabled) {
+  box-shadow:
+    0 6px 24px rgba(255, 255, 255, 0.35),
+    0 2px 6px rgba(0, 0, 0, 0.4),
+    inset 0 2px 4px rgba(255, 255, 255, 1);
+}
+
+:global(body[data-ds-dark-theme]) .primary:disabled {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.retry {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
