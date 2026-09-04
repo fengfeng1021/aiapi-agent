@@ -36,7 +36,7 @@ jobs:
         run: |
           .\target\release\aiapi-agent.exe --help
           .\target\release\aiapi-agent.exe login --help
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aiapi-agent-windows-x64
           path: codex-rs/target/release/aiapi-agent.exe
@@ -67,7 +67,7 @@ jobs:
         run: pnpm run build
       - name: Build MSI (en-US + zh-CN, unsigned)
         run: pnpm run desktop:build -- --target x86_64-pc-windows-msvc
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: aiapi-agent-msi-windows-x64
           path: deepseek-harness/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
