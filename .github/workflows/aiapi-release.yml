@@ -1,0 +1,96 @@
+# Aiapi Agent release pipeline (public repo => GitHub-hosted runners are free).
+#
+# - Builds the Rust engine (aiapi-agent.exe) and the desktop MSIs on
+#   windows-latest and attaches them to a GitHub Release.
+# - Trigger: push a tag like v0.1.0, or run manually from the Actions tab.
+# - Unsigned artifacts (internal testing). For signed public releases, add
+#   the signing step (e.g. SignPath free OSS signing) before upload.
+name: aiapi-release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  # Fresh runners start from a clean cache, but keep the extra stack allowed:
+  # rustc codegen on the huge codex-cli crate once overflowed on 1.95/1.96.
+  RUST_MIN_STACK: "67108864"
+
+jobs:
+  build-rust-exe:
+    name: Rust engine (aiapi-agent.exe)
+    runs-on: windows-latest
+    timeout-minutes: 150
+    defaults:
+      run:
+        working-directory: codex-rs
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --profile release --bin aiapi-agent
+      - name: Smoke test binary
+        run: |
+          .\target\release\aiapi-agent.exe --help
+          .\target\release\aiapi-agent.exe login --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiapi-agent-windows-x64
+          path: codex-rs/target/release/aiapi-agent.exe
+          if-no-files-found: error
+
+  build-desktop-msi:
+    name: Desktop MSIs (Tauri)
+    runs-on: windows-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: deepseek-harness
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build harness
+        run: pnpm run build
+      - name: Build MSI (en-US + zh-CN, unsigned)
+        run: pnpm run desktop:build -- --target x86_64-pc-windows-msvc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aiapi-agent-msi-windows-x64
+          path: deepseek-harness/apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-rust-exe, build-desktop-msi]
+    # Only publish on tags; manual runs just validate the build.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          --title "Aiapi Agent ${{ github.ref_name }} (unsigned preview)"
+          --notes "Preview build: aiapi-agent.exe + Windows x64 MSIs (en-US, zh-CN). Unsigned: accept the SmartScreen prompt for internal testing."
+          dist/aiapi-agent.exe "dist/*.msi"
