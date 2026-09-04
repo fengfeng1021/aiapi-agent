@@ -94,3 +94,5 @@ jobs:
           --title "Aiapi Agent ${{ github.ref_name }} (unsigned preview)"
           --notes "Preview build: aiapi-agent.exe + Windows x64 MSIs (en-US, zh-CN). Unsigned: accept the SmartScreen prompt for internal testing."
           dist/aiapi-agent.exe "dist/*.msi"
+
+# touch: force workflow resync
