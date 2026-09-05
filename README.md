@@ -82,3 +82,9 @@ scripts/             Provider migration helpers.
 
 This repository is licensed under the [Apache-2.0 License](LICENSE).
 Third-party components keep their own licenses as noted above.
+
+## Code signing
+
+Windows releases are code-signed through the
+[SignPath Foundation](https://signpath.org/) free code-signing program for
+open source projects. See [PRIVACY.md](PRIVACY.md) for the privacy policy.

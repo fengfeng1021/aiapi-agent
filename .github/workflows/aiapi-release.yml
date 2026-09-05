@@ -107,5 +107,5 @@ jobs:
         run: >
           gh release create "${{ github.ref_name }}"
           --title "Aiapi Agent ${{ github.ref_name }} (unsigned preview)"
-          --notes "Preview build: aiapi-agent.exe + Windows x64 MSIs (en-US, zh-CN). Unsigned: accept the SmartScreen prompt for internal testing."
+          --notes "Preview build: aiapi-agent.exe + Windows x64 MSIs (en-US, zh-CN). Unsigned: accept the SmartScreen prompt for internal testing. Signed releases are provided through the SignPath Foundation free code-signing program for open source projects."
           dist/aiapi-agent.exe "dist/*.msi"

@@ -77,3 +77,8 @@ scripts/             供應商遷移小工具。
 - 桌面載體衍生自社群 Tauri fork。
 
 本倉庫採用 [Apache-2.0 授權](LICENSE)。第三方元件授權如上所述，各自保留。
+
+## 程式簽名
+
+Windows 發佈版透過 [SignPath Foundation](https://signpath.org/) 開源免費
+程式簽名計畫簽署。隱私政策見 [PRIVACY.md](PRIVACY.md)。
