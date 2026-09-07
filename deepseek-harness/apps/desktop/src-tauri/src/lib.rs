@@ -32,7 +32,9 @@ use startup::{
 };
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewWindow};
 
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+// Cold first boot materializes ~50k runtime files under Defender/indexers,
+// which routinely exceeds a minute on Windows. Give it five.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(300);
 const LOG_TAIL_LINES: usize = 40;
 
 fn runtime_window_urls(base: &Url) -> (Url, Url) {
@@ -571,7 +573,7 @@ fn wait_for_runtime(ready: Receiver<Url>, state: Arc<ProcessState>) -> Result<Ur
 
         if Instant::now() >= deadline {
             return Err(
-                state.failure_message("local runtime did not become ready within 60 seconds")
+                state.failure_message("local runtime did not become ready within 5 minutes")
             );
         }
     }
