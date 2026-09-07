@@ -2,8 +2,8 @@
 <WixLocalization Culture="en-us" xmlns="http://schemas.microsoft.com/wix/2006/localization">
   <String Id="TauriLanguage">1033</String>
   <String Id="TauriCodepage">1252</String>
-  <String Id="LaunchApp">Launch DeepSeek Harness</String>
-  <String Id="DowngradeErrorMessage">A newer version of DeepSeek Harness is already installed.</String>
-  <String Id="PathEnvVarFeature">Add the DeepSeek Harness install location to the system PATH so it can be launched from any terminal.</String>
-  <String Id="InstallAppFeature">Install DeepSeek Harness and its bundled local runtime.</String>
+  <String Id="LaunchApp">Launch Aiapi Agent</String>
+  <String Id="DowngradeErrorMessage">A newer version of Aiapi Agent is already installed.</String>
+  <String Id="PathEnvVarFeature">Add the Aiapi Agent install location to the system PATH so it can be launched from any terminal.</String>
+  <String Id="InstallAppFeature">Install Aiapi Agent and its bundled local runtime.</String>
 </WixLocalization>

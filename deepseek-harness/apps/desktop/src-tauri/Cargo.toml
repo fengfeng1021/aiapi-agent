@@ -1,19 +1,19 @@
 [package]
-name = "deepseek-harness-desktop"
+name = "aiapi-agent-desktop"
 version = "0.1.12"
-description = "Desktop carrier for DeepSeek Harness"
-authors = ["DeepSeek Harness Community"]
+description = "Aiapi Agent Desktop"
+authors = ["Aiapi Agent Contributors"]
 license = "MIT"
-repository = "https://github.com/bailang1218/deepseek-harness-desktop"
+repository = "https://github.com/fengfeng1021/aiapi-agent"
 edition = "2021"
 rust-version = "1.77.2"
 
 [lib]
-name = "deepseek_harness_desktop_lib"
+name = "aiapi_agent_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "deepseek-harness-desktop"
+name = "aiapi-agent-desktop"
 path = "src/main.rs"
 
 [build-dependencies]

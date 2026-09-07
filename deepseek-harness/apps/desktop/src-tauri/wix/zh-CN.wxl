@@ -2,8 +2,8 @@
 <WixLocalization Culture="zh-cn" xmlns="http://schemas.microsoft.com/wix/2006/localization">
   <String Id="TauriLanguage">2052</String>
   <String Id="TauriCodepage">936</String>
-  <String Id="LaunchApp">启动 DeepSeek Harness</String>
-  <String Id="DowngradeErrorMessage">此计算机上已经安装了更新版本的 DeepSeek Harness。</String>
-  <String Id="PathEnvVarFeature">将 DeepSeek Harness 的安装位置添加到系统 PATH，以便从任意终端启动。</String>
-  <String Id="InstallAppFeature">安装 DeepSeek Harness 及其随附的本地运行时。</String>
+  <String Id="LaunchApp">启动 Aiapi Agent</String>
+  <String Id="DowngradeErrorMessage">此计算机上已经安装了更新版本的 Aiapi Agent。</String>
+  <String Id="PathEnvVarFeature">将 Aiapi Agent 的安装位置添加到系统 PATH，以便从任意终端启动。</String>
+  <String Id="InstallAppFeature">安装 Aiapi Agent 及其随附的本地运行时。</String>
 </WixLocalization>
