@@ -23,7 +23,7 @@ import type { ConversationSnapshot } from './snapshot.ts'
 import type { ViewTab } from './views.ts'
 
 /** Browser-owned image that has not crossed the durable Host boundary. */
-export interface ComposerAttachment {
+export interface ComposerImageAttachment {
   kind: 'image'
   id: DraftAttachmentId
   file: File
@@ -34,15 +34,34 @@ export interface ComposerAttachment {
   height?: number
 }
 
+/**
+ * Host-path file reference (desktop drops carry real paths): the chip's
+ * visible identity is name and type, while submit delivers the path to the
+ * model as a reference — the bytes never cross the page.
+ */
+export interface ComposerFileAttachment {
+  kind: 'file'
+  id: DraftAttachmentId
+  /** Absolute host path delivered to the model as a reference. */
+  path: string
+  /** Basename shown on the chip. */
+  name: string
+}
+
+/** One draft attachment: a browser-owned image or a host-path file reference. */
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment
+
 /** Input state handed to the optional attachment presentation plugin. */
 export interface ComposerAttachmentsOwnerProps {
-  /** Browser-owned draft images in input order. */
+  /** Draft attachments (images and file references) in input order. */
   attachments: readonly ComposerAttachment[]
-  /** Whether a document-level file drop may add images now. */
+  /** Whether a document-level file drop may add attachments now. */
   canAcceptDrop: boolean
-  /** Add one dropped batch through the composer's validation path. */
+  /** A host-side file drag is hovering the window (Tauri drop events). */
+  dropActive: boolean
+  /** Add one dropped image batch through the composer's validation path. */
   onAddImages: (files: readonly File[]) => void
-  /** Remove one draft image through the Conversation service. */
+  /** Remove one draft attachment through the Conversation service. */
   onRemoveImage: (id: DraftAttachmentId) => void
   /** Display-ready limits for the drop invitation. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
@@ -269,6 +288,7 @@ export interface ComposerBarOwnerProps {
 export interface ComposerBarInjected {
   keyboard: ComposerKeyboard | undefined
   addImages: ((files: readonly File[]) => string | null) | undefined
+  addFiles: ((paths: readonly string[]) => string | null) | undefined
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
   resolveSubmitMode: (

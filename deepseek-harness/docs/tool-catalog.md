@@ -32,6 +32,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`, `ctx.lsp`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | The lsp tool keeps provider selection and language-server subprocesses behind ctx.lsp, so its model-visible schema stays stable across providers. Requires a registered provider (e.g. `@deepseek-ai/dsh-lsp-stdio`) at runtime; without one, a query returns the structured `LSP_UNAVAILABLE` error rather than changing the schema. |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`, `ctx.workflowEngine`, `ctx.subagents`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents every fresh round)` | `tool/call`, `tool/result`, `workflow and child session events during execution` | - | A fixed foreground workflow starts one fresh structured child per round; the model selects only the immutable objective and an optional round cap. |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`, `ctx.agents`, `ctx.skills` | `tool/call`, `tool/result`, `user/message replacement catalogs via agent.inject()` | - | - |
+| `@deepseek-ai/dsh-skill-filesystem` | `skill_disable`, `skill_enable`, `skill_install` | `ctx.tools`, `ctx.skills`, `a session workspace for project scopes` | `tool/call`, `skill files under known skill roots`, `tool/result` | - | Opt-in installer surface: the tools register only when the skill-filesystem composition sets installTools. skill_install writes one <name>/SKILL.md bundle and refuses to overwrite without overwrite true; skill_enable and skill_disable rewrite only the two invocation flags. |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`, `session_event_search`, `session_event_trace`, `session_search`, `session_trace` | `ctx.tools`, `ctx.systemPrompt`, `ctx.sessionQuery`, `a calling Agent for workspace authority` | `tool/call`, `tool/result` | - | The five read-only tools hide provider cursors and authorize every result from the immutable calling agent session. The package is opt-in; compositions that need enforced deadlines or bounded inline output also mount the generic timeout or spill policies. |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`, `subagent` | `ctx.tools`, `ctx.subagents`, `ctx.systemPrompt`, `ctx.llm for model discovery and selected-route validation` | `tool/call`, `tool/result`, `child session events through the chosen provider` | `subagent`, `subagent_fork` | The registered delegation name is the load-time `toolName` config (default `subagent`); the default schema above has model selection off, while the discovery schema is shown as the fixed companion available in an enabled Session. Web presets sample the Plugins preference for each new top-level Session and preserve that decision for its child Sessions; `subagent_fork` remains fixed-route. Each instance independently controls whether it reads model-selection settings and its background behavior through `modelSelectionSettings`, `backgroundMode`, and `enableRunInBackground`. |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`, `list_agents`, `send_message` | `ctx.tools`, `ctx.subagents`, `ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`, `tool/result`, `child session events through ctx.subagents` | - | The globally named control tools over continuable background subagents: provider-bound `tool-subagent` instances register distinct delegation tools, while this package registers `send_message` and `interrupt_agent` once, plus `list_agents` from its separately loaded `/list-agents` plugin (whose catalog rows use the sessionProjections and live Agent registries). |
@@ -1103,7 +1104,7 @@ create, edit, pause, and resume require direct-human root authority; complete an
 
 ### `schedule_create`
 
-Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed.
+Create one reminder in the current session. Supply a non-empty prompt and exactly one selector: a positive safe-integer after_seconds delay, at as a strict offset date-time or local date/time object, or safe-integer every_seconds of at least 300. Fixed-rate reminders stay creation-aligned, skip missed occurrences, and batch one latest occurrence per overdue rule. Delivery is session-local: the reminder runs on time only while this session is live and otherwise becomes overdue until the session is resumed. Optional management metadata (title, project, model, reasoning effort, notify policy, paused flag) attaches to the record; paused reminders stay listed but never fire.
 
 ```json
 {
@@ -1148,6 +1149,35 @@ Create one reminder in the current session. Supply a non-empty prompt and exactl
         }
       ],
       "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
+    },
+    "title": {
+      "type": "string",
+      "description": "Display title; defaults to the prompt leading text."
+    },
+    "project": {
+      "type": "string",
+      "description": "Owning project label."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model selected for the run; defaults to the session model."
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Reasoning effort label."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Delivery notification policy. Defaults to every run.",
+      "enum": [
+        "all",
+        "on-failure",
+        "never"
+      ]
+    },
+    "paused": {
+      "type": "boolean",
+      "description": "List the reminder paused so it never fires until deleted and recreated."
     }
   },
   "required": [
@@ -1297,6 +1327,125 @@ Load the full instructions for an available skill. Call this with the exact skil
 ```
 
 Source: [`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+<a id="deepseek-aidsh-skill-filesystem"></a>
+
+## `@deepseek-ai/dsh-skill-filesystem`
+
+### `skill_disable`
+
+Disable an installed skill: writes the explicit disabled invocation pair without touching other bytes.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+### `skill_enable`
+
+Enable an installed skill: writes the explicit enabled invocation pair without touching other bytes.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+Source: [`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+### `skill_install`
+
+Install a skill from an explicit name, description, and instruction body. Writes <name>/SKILL.md under one skill root and refuses to overwrite without overwrite true. Prefer the skill-installer skill guidance before composing the body.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name, for example code-review."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short routing description shown by discovery."
+    },
+    "body": {
+      "type": "string",
+      "description": "Full instruction body below the frontmatter."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Replace an existing SKILL.md. Defaults to false."
+    },
+    "when_to_use": {
+      "type": "string",
+      "description": "Optional extra routing guidance."
+    },
+    "disable_model_invocation": {
+      "type": "boolean",
+      "description": "Hide the skill from the model catalog. Defaults to false."
+    },
+    "user_invocable": {
+      "type": "boolean",
+      "description": "Offer the skill as a /name gesture. Defaults to true."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "body"
+  ]
+}
+```
+
+Source: [`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+Opt-in installer surface: the tools register only when the skill-filesystem composition sets installTools. skill_install writes one <name>/SKILL.md bundle and refuses to overwrite without overwrite true; skill_enable and skill_disable rewrite only the two invocation flags.
 
 <a id="deepseek-aidsh-tool-session-query"></a>
 

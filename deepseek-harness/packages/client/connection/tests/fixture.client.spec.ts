@@ -192,7 +192,7 @@ interface FixtureWorkspaceView {
 interface FixtureWorkspaceRequests {
   create: { readonly path: string }
   rename: { readonly workspaceId: WorkspaceId; readonly title: string }
-  delete: { readonly workspaceId: WorkspaceId }
+  delete: { readonly workspaceId: WorkspaceId; readonly cascadeSessions?: boolean }
   insertBefore: { readonly workspaceId: WorkspaceId; readonly beforeWorkspaceId?: WorkspaceId }
   insertSessionBefore: {
     readonly workspaceId: WorkspaceId
@@ -200,12 +200,14 @@ interface FixtureWorkspaceRequests {
     readonly beforeSessionId?: SessionId
   }
   archiveSession: { readonly sessionId: SessionId }
+  deleteSession: { readonly sessionId: SessionId }
 }
 
 interface FixtureWorkspaceValues {
   create: { readonly workspace: FixtureWorkspaceView; readonly created: boolean }
   rename: { readonly workspace: FixtureWorkspaceView }
   delete: { readonly deleted: true }
+  deleteSession: { readonly deleted: true }
   insertBefore: { readonly workspaceIds: readonly WorkspaceId[] }
   insertSessionBefore: { readonly workspace: FixtureWorkspaceView }
   archiveSession: { readonly archivedSessionIds: readonly SessionId[] }
@@ -477,6 +479,7 @@ function createWorkspaceApi(rpc: ClientConnectionRpc): FixtureWorkspaceApi {
     insertBefore: (request, signal) => call('insertBefore', request, signal),
     insertSessionBefore: (request, signal) => call('insertSessionBefore', request, signal),
     archiveSession: (request, signal) => call('archiveSession', request, signal),
+    deleteSession: (request, signal) => call('deleteSession', request, signal),
   }
 }
 
@@ -489,6 +492,7 @@ function createWorkspaceClient(rpc: ClientConnectionRpc): FixtureWorkspaceClient
     insertBefore: (request, signal) => api.insertBefore(req(request), signal),
     insertSessionBefore: (request, signal) => api.insertSessionBefore(req(request), signal),
     archiveSession: (request, signal) => api.archiveSession(req(request), signal),
+    deleteSession: (request, signal) => api.deleteSession(req(request), signal),
   }
 }
 
@@ -1286,6 +1290,53 @@ describe('createFixtureApi', () => {
     const sessions = await api.sessions.list(req({}))
     if (!sessions.result.ok) throw new Error('session list failed')
     expect(sessions.result.value.items.map(session => session.sessionId)).toContain('fx-alpha')
+  })
+
+  it('workspace.delete with cascadeSessions removes owned sessions and prunes the archive set', async () => {
+    const api = createFixtureApi()
+    const archived = await api.workspace.archiveSession(req({ sessionId: sid('fx-beta') }))
+    if (!archived.result.ok) throw new Error('archive failed')
+    expect(archived.result.value.archivedSessionIds).toEqual(['fx-beta'])
+    const abort = new AbortController()
+    const consuming = collectValues(
+      api.workspaceRemote.follow(abort.signal),
+      abort,
+      frames => frames.some(frame => frame.type === 'remove'),
+    )
+    await new Promise(resolve => setTimeout(resolve, 10))
+    const deleted = await api.workspace.delete(req({ workspaceId: 'fx-ws-fixture' as WorkspaceId, cascadeSessions: true }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    const frames = await consuming
+    expect(frames.filter(frame => frame.type === 'archived').at(-1)).toEqual({ type: 'archived', archivedSessionIds: [] })
+    expect(frames.at(-1)).toEqual({ type: 'remove', workspaceId: 'fx-ws-fixture' })
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items).toEqual([])
+    const baseline = await readWorkspaceBaseline(api.workspaceRemote)
+    expect(baseline.items.some(workspace => workspace.workspaceId === 'fx-ws-fixture')).toBe(false)
+    expect(baseline.archivedSessionIds).toEqual([])
+  })
+
+  it('workspace.deleteSession removes the session row, unaccounts it, and prunes the archive set', async () => {
+    const api = createFixtureApi()
+    const missing = await api.workspace.deleteSession(req({ sessionId: sid('fx-ghost') }))
+    expect(missing.result).toMatchObject({ ok: false, error: { code: 'session/not-found', details: { sessionId: 'fx-ghost' } } })
+    const archived = await api.workspace.archiveSession(req({ sessionId: sid('fx-beta') }))
+    if (!archived.result.ok) throw new Error('archive failed')
+    const deleted = await api.workspace.deleteSession(req({ sessionId: sid('fx-beta') }))
+    expect(deleted.result).toEqual({ ok: true, value: { deleted: true } })
+    const created = await api.sessions.create(req({}))
+    if (!created.result.ok) throw new Error('create failed')
+    const loose = created.result.value.sessionId
+    const deletedLoose = await api.workspace.deleteSession(req({ sessionId: loose }))
+    expect(deletedLoose.result).toEqual({ ok: true, value: { deleted: true } })
+    const sessions = await api.sessions.list(req({}))
+    if (!sessions.result.ok) throw new Error('session list failed')
+    expect(sessions.result.value.items.map(session => session.sessionId)).toEqual(['fx-alpha', 'fx-gamma'])
+    const baseline = await readWorkspaceBaseline(api.workspaceRemote)
+    expect(baseline.items.find(workspace => workspace.workspaceId === 'fx-ws-fixture')?.sessionIds)
+      .toEqual(['fx-alpha', 'fx-gamma'])
+    expect(baseline.archivedSessionIds).toEqual([])
   })
 
   it('session.create({workspaceId}) lands on the account and unknown ids error', async () => {

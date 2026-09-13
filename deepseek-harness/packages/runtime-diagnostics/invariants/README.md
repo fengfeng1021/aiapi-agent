@@ -66,7 +66,7 @@ Each companion protects relationships its package owns, and a companion installs
 | `dsh-jobs`, `dsh-tool-todo`, `dsh-time-context` | Job snapshot field relationships, whole-list todo shape, durable clock readings |
 | `dsh-credentials`, `dsh-settings`, `dsh-storage-domain`, `dsh-workspace` | Commit events against the live service or memory state, entity-cache mirroring |
 | `dsh-agent-presets`, `dsh-session-title`, `dsh-plan-mode`, `dsh-schedule`, `dsh-webserver` | Preset mount placement, title source citation, plan-mode payload, schedule stream, route disposer symmetry |
-| `dsh-client-hmr`, `dsh-client-modules`, `dsh-client-runtime` | Browser/node-half stat-watcher lifecycle, boot entry graph, slot mutation versioning |
+| `dsh-client-hmr`, `dsh-client-modules` | Browser/node-half stat-watcher lifecycle, boot entry graph |
 
 Every other workspace package publishes an empty companion with a `No runtime invariant:` explanation of why nothing is checkable.
 

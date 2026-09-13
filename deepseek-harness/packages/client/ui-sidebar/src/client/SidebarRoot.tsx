@@ -203,10 +203,17 @@ export function SidebarRoot({
           aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
+          <IconNewChatOutline16 size={wide ? 16 : 18} />
           {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
         </button>
       </Tooltip>
+
+      {/* Primary actions sit directly under New Session in both sidebar widths. */}
+      <div className={css.primaryArea}>
+        <div className={css.primaryActions}>
+          {renderSlot('sidebar.primary.action', { wide })}
+        </div>
+      </div>
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}

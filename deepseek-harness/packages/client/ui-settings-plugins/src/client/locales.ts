@@ -3,6 +3,10 @@
 /** Locale keys these surfaces render. */
 export type PluginsSettingsLocaleKey =
   | 'nav' | 'title' | 'intro' | 'tabs' | 'configurableTab' | 'empty'
+  | 'marketplaceTab' | 'marketplace.search' | 'marketplace.search.placeholder' | 'marketplace.empty'
+  | 'marketplace.unavailable' | 'marketplace.ready' | 'marketplace.unsaved' | 'marketplace.saving'
+  | 'marketplace.saveFailed' | 'marketplace.enabled' | 'marketplace.disabled'
+  | 'marketplace.keySet' | 'marketplace.keyUnset' | 'marketplace.configureHint'
   | 'overridden' | 'reset' | 'readOnly' | 'expand' | 'collapse'
   | 'save' | 'saving' | 'discard' | 'unsaved' | 'saveFailed' | 'invalidNumber'
   | 'bashTitle' | 'bashDescription' | 'bashTimeoutMs' | 'bashTimeoutMsHint'
@@ -72,6 +76,20 @@ export const en: Record<PluginsSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: 'Select at least one model before saving.',
   subagentModelSelectionConflict: 'Settings changed elsewhere. Discard your draft and try again.',
   subagentModelSelectionOff: 'Subagents use configured defaults or inherit the parent agent\'s model. Saved model choices are retained.',
+  'marketplaceTab': 'Plugin marketplace',
+  'marketplace.search': 'Search plugins',
+  'marketplace.search.placeholder': 'Filter by name or description',
+  'marketplace.empty': 'No matching plugins',
+  'marketplace.unavailable': 'Unavailable',
+  'marketplace.ready': 'Ready',
+  'marketplace.unsaved': 'Unsaved changes',
+  'marketplace.saving': 'Saving…',
+  'marketplace.saveFailed': 'Save failed',
+  'marketplace.enabled': 'Enabled',
+  'marketplace.disabled': 'Disabled',
+  'marketplace.keySet': 'Key configured',
+  'marketplace.keyUnset': 'No key configured',
+  'marketplace.configureHint': 'Adjust in the Plugin configuration tab',
 }
 
 /** Simplified Chinese copy. */
@@ -128,4 +146,18 @@ export const zh: Record<PluginsSettingsLocaleKey, string> = {
   subagentModelSelectionRequired: '保存前请至少选择一个模型。',
   subagentModelSelectionConflict: '设置已在其他位置更新。请放弃修改后重试。',
   subagentModelSelectionOff: '关闭后，Subagent 使用配置的默认模型或继承父 Agent 的模型；已选模型会保留。',
+  'marketplaceTab': '插件市集',
+  'marketplace.search': '搜索插件',
+  'marketplace.search.placeholder': '按名称或描述过滤',
+  'marketplace.empty': '没有符合的插件',
+  'marketplace.unavailable': '未提供',
+  'marketplace.ready': '就绪',
+  'marketplace.unsaved': '有未保存的修改',
+  'marketplace.saving': '保存中…',
+  'marketplace.saveFailed': '保存失败',
+  'marketplace.enabled': '已启用',
+  'marketplace.disabled': '已停用',
+  'marketplace.keySet': '已配置密钥',
+  'marketplace.keyUnset': '未配置密钥',
+  'marketplace.configureHint': '前往“插件配置”分页调整',
 }

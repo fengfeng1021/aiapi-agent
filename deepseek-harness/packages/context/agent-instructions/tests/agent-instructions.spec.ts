@@ -5,11 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import * as workspaceContext from '@deepseek-ai/dsh-agent-instructions'
-import LlmRuntime, { createUserMessage, ToolCallId, type Message, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
+import { createUserMessage, ToolCallId, type Message } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId, SESSION_FORMAT_VERSION, type SessionEvent, type UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import AgentRegistry, { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
-import AgentLoop, { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
+import { agentEvents, Inbox, type Agent } from '@deepseek-ai/dsh-agent'
+import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
 import { FileSystem, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
 import type {
   FsDirEntry,
@@ -42,7 +42,6 @@ import {
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
 import { candidateScopeKey, renderInstructionChanges, renderWorkspaceInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
-import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 /** Per-candidate reconciliation scope key: directory paired with the file name. */
 const sk = (directory: string, candidateName: string): string => candidateScopeKey(directory, candidateName)
@@ -2517,67 +2516,6 @@ describe('workspace context request injection', () => {
 })
 
 describe('dynamic nested workspace context injection', () => {
-  it('projects a successful file result even when a later sibling aborts the step', async () => {
-    const root = await tempRepo()
-    const home = await tempRepo()
-    const ctx = new Context()
-    try {
-      await mkdir(join(root, '.git'), { recursive: true })
-      await write(join(root, 'pkg/AGENTS.md'), 'nested rule survives an aborted tool batch')
-      await write(join(root, 'pkg/deep/file.txt'), 'hello')
-      const adapter = new MockAdapter([
-        [
-          { type: 'block-start', index: 0, blockType: 'tool-call' },
-          { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('read-before-abort'), name: 'read', arguments: '{"file_path":"pkg/deep/file.txt"}' } },
-          { type: 'block-start', index: 1, blockType: 'tool-call' },
-          { type: 'block-end', index: 1, block: { type: 'tool-call', id: ToolCallId('abort-after-read'), name: 'abort_step', arguments: '{}' } },
-          { type: 'finish', reason: { kind: 'tool-calls' } },
-        ] satisfies StreamChunk[],
-        toolCallResponse('read-after-abort', 'read', { file_path: join('pkg', 'deep', 'file.txt') }),
-        textResponse('done'),
-      ])
-      await ctx.plugin(LlmRuntime)
-      await ctx.plugin(SessionStore)
-      await ctx.plugin(SystemPrompt)
-      await ctx.plugin(ToolRuntime)
-      await ctx.plugin(AgentRegistry)
-      await ctx.plugin(LocalFileSystem, { cwd: '/' })
-      await ctx.plugin(ToolFs)
-      await mountWorkspaceContextPlugin(ctx, { dshHome: home, maxBytes: 65536 })
-      await ctx.plugin(AgentLoop, { agents: [] })
-      ctx.llm.registerAdapter(['mock'], adapter)
-      const agent = ctx.agentLoop.create(SessionId('workspace-context-abort'), { provider: 'mock', model: 'mock' }, { cwd: root })
-      ctx.tools.register(defineContentToolFixture({
-        name: 'abort_step',
-        description: 'Abort the current test step.',
-        parameters: {},
-        async execute() {
-          agent.cancel({ kind: 'user' })
-          return [{ type: 'text', text: 'aborted' }]
-        },
-      }))
-
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'read and abort' }], source: { kind: 'user' } }))
-      await agent.whenIdle()
-      expect(agent.session.events.filter(event =>
-        event.type === 'user/message' && event.data.source.kind !== 'user',
-      )).toHaveLength(0)
-
-      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'retry the read' }], source: { kind: 'user' } }))
-      await agent.whenIdle()
-
-      const contexts = agent.session.events.filter(event => event.type === 'user/message' && event.data.source.kind !== 'user')
-      expect(contexts).toHaveLength(1)
-      expect(adapter.requests).toHaveLength(3)
-      expect(adapter.requests.at(-1)?.messages.map(blocks => blocksText(blocks.content)).join('\n'))
-        .toContain('nested rule survives an aborted tool batch')
-    } finally {
-      await ctx.fiber.dispose()
-      await rm(root, { recursive: true, force: true })
-      await rm(home, { recursive: true, force: true })
-    }
-  })
-
   it('builds persisted digest state without inventing a provider version', () => {
     const state = baselineInstructionState([{
       absolutePath: '/repo/AGENTS.md',

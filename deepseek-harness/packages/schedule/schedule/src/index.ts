@@ -28,7 +28,11 @@ export {
   renderReminderFraming,
   renderEveryReminderBatchFraming,
   resolveEveryOccurrence,
+  resolveScheduleMetadata,
+  scheduleActiveStatus,
+  scheduleCreateVersion,
   scheduleView,
+  validateScheduleMetadataInput,
 } from './domain.ts'
 export { registerScheduleTools } from './tools.ts'
 

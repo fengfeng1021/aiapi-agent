@@ -33,6 +33,13 @@ import { ComposerContentEditable } from '../input/editor/ComposerContentEditable
 import { DecoratorPortals } from '../input/editor/DecoratorPortals.tsx'
 import { registerComposerKeymap } from '../input/editor/keymap.ts'
 import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
+import {
+  formatTextAttachment,
+  partitionFiles,
+  readTextFile,
+  type TextFileContent,
+} from '../text-files.ts'
+import { listenTauriFileDrops } from '../native-picker.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
@@ -40,7 +47,7 @@ import css from './InputBar.module.css'
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  useSession, useInput, inputActions, keyboard, addImages, addFiles, removeImage, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
@@ -212,46 +219,116 @@ export function InputBar({
     return () => { el.removeEventListener('wheel', onWheel) }
   }, [])
 
-  // Intake pre-check: an addition that would break
+  // Insert text into the composer, gated exactly like a text paste: a busy
+  // or locked bar swallows it silently instead of racing the turn.
+  const insertText = useCallback((text: string): void => {
+    if (keyboard === undefined || gate.current.machineBusy || gate.current.locked) return
+    keyboard.paste(text)
+  }, [keyboard])
+
+  // Intake pre-check: an image addition that would break
   // a projected limit is refused as a whole batch, announced immediately, and
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
-  // this composer.
+  // this composer. Plain-text files read into the composer instead (async);
+  // anything else rides the host rejection path with its product copy.
   const intakeImages = useCallback((files: readonly File[]): void => {
     if (addImages === undefined || files.length === 0) return
-    const rejected = ((): string | null => {
-      if (imageLimits !== undefined) {
-        // Format precedes limits: a batch with
-        // a non-image must announce the format problem, not a count or size
-        // it could never pass anyway — addImages rejects it authoritatively.
-        if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
-          return addImages(files)
+    const isImage = (file: File): boolean => imageLimits === undefined
+      ? file.type.startsWith('image/')
+      : (imageLimits.mediaTypes as readonly string[]).includes(file.type)
+    const { images, texts, others } = partitionFiles(files, isImage)
+    if (images.length > 0) {
+      const rejected = ((): string | null => {
+        if (imageLimits !== undefined) {
+          if (attachments.length + images.length > imageLimits.maxImagesPerMessage) {
+            return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
+          }
+          if (images.some(file => file.size > imageLimits.maxImageBytes)) {
+            return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
+          }
+          const total = attachments.reduce(
+            (sum, attachment) => sum + (attachment.kind === 'image' ? attachment.file.size : 0),
+            0,
+          ) + images.reduce((sum, file) => sum + file.size, 0)
+          if (total > imageLimits.maxMessageImageBytes) {
+            return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
+          }
         }
-        if (attachments.length + files.length > imageLimits.maxImagesPerMessage) {
-          return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
-        }
-        if (files.some(file => file.size > imageLimits.maxImageBytes)) {
-          return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
-        }
-        const total = attachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
-          + files.reduce((sum, file) => sum + file.size, 0)
-        if (total > imageLimits.maxMessageImageBytes) {
-          return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
-        }
-      }
-      return addImages(files)
-    })()
-    if (rejected !== null) showToast(rejected)
+        return addImages(images)
+      })()
+      if (rejected !== null) showToast(rejected)
+    }
+    if (texts.length > 0) {
+      void insertTextFiles(texts)
+    }
+    if (others.length > 0) {
+      const rejected = addImages(others)
+      if (rejected !== null) showToast(rejected)
+    }
   }, [addImages, attachments, imageLimits, showToast, t])
 
+  // Read dropped/pasted text files and insert each as a fenced block. Async
+  // by nature (FileReader); failures toast per file without touching the rest.
+  // Returns the in-flight drain so callers mark it deliberately ignored.
+  const insertTextFiles = useCallback((files: readonly File[]): Promise<void> => {
+    return (async () => {
+      for (const file of files) {
+        let content: TextFileContent
+        try {
+          content = await readTextFile(file)
+        } catch {
+          showToast(t('file.readFailed', { name: file.name }))
+          continue
+        }
+        gate.current.insertText(formatTextAttachment(t, content))
+      }
+    })()
+  }, [showToast, t])
+
   const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+
+  // Host-path intake (desktop drops): every non-image path drafts a chip
+  // whose submit delivers the reference; images keep the vision path.
+  const intakeFilePaths = useCallback((paths: readonly string[]): void => {
+    if (addFiles === undefined || paths.length === 0) return
+    const rejected = addFiles(paths)
+    if (rejected !== null) showToast(rejected)
+  }, [addFiles, showToast])
+
+  // Tauri drags arrive outside the DOM (the host consumes them first): the
+  // bridge reports hover for the drop invitation and dispatches the drop.
+  // Where it never arms (plain browsers) the document drop zone stays
+  // authoritative.
+  const [dropActive, setDropActive] = useState(false)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined
+    let cancelled = false
+    listenTauriFileDrops({
+      canAccept: () => !gate.current.locked && !gate.current.machineBusy && addImages !== undefined,
+      onDragActive: (active) => { setDropActive(active) },
+      onFiles: (files) => { gate.current.intakeImages(files) },
+      onPaths: (paths) => { gate.current.intakeFilePaths(paths) },
+    }).then(
+      (stop) => {
+        if (typeof stop !== 'function') return
+        if (cancelled) stop()
+        else unlisten = stop
+      },
+      () => {},
+    )
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [addImages])
 
   // The keymap handlers read live bar state through this ref so the editor
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
-    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeImages,
+    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeImages, intakeFilePaths, insertText,
   })
-  gate.current = { locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeImages }
+  gate.current = { locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeImages, intakeFilePaths, insertText }
 
   useEffect(() => {
     if (editor === null || keyboard === undefined) return
@@ -396,6 +473,7 @@ export function InputBar({
         {renderSlot('conversation.input.attachments', {
           attachments,
           canAcceptDrop,
+          dropActive,
           onAddImages: intakeImages,
           onRemoveImage: (id) => { removeImage?.(id) },
           dropLimits: imageLimits === undefined ? undefined : {

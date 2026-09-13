@@ -1,0 +1,62 @@
+/* Bundled selectable fonts for the Appearance page (SIL OFL 1.1 — see
+ * apps/web/public/fonts/OFL-*.txt). Noto Sans Mono is a variable face
+ * (100-900) with zero CJK glyphs: latin and latin-ext subsets only, so
+ * Chinese always falls through to the CJK family. Maple Mono CN ships as
+ * four static CJK-subset weights matching the weight slider window.
+ * URLs are page-relative (apps/web/public/fonts ships at the site root;
+ * the ?inline sheet is injected as text, so they resolve against the page).
+ * Maple Mono CN upstream draws CJK at a 1.2em advance (twice its 0.6em
+ * Latin advance); the bundled files are narrowed in place instead (hmtx
+ * 1200->1000 with bearings rebalanced, outlines untouched), so Chinese
+ * renders at full size near Microsoft YaHei density with no size-adjust.
+ * Every Maple face below stays CJK-gated (unicode-range) while Latin and
+ * digits keep their own face and advance untouched. Halfwidth kana
+ * (FF61-FFDC) stays out on purpose: it rides the Latin advance. */
+@font-face {
+  font-family: 'Noto Sans Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('fonts/noto-sans-mono-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Noto Sans Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('fonts/noto-sans-mono-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Maple Mono CN';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('fonts/maple-mono-cn-400.woff2') format('woff2');
+  unicode-range: U+2E80-2EFF, U+2F00-2FDF, U+3000-303F, U+3040-309F, U+30A0-30FF, U+3100-312F, U+3130-318F, U+3190-319F, U+31A0-31FF, U+3200-32FF, U+3300-33FF, U+3400-4DBF, U+4E00-9FFF, U+A000-A48F, U+A490-A4CF, U+AC00-D7AF, U+D7B0-D7FF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FF60, U+FFE0-FFE6, U+20000-2EBEF, U+2F800-2FA1F, U+30000-323AF;
+}
+@font-face {
+  font-family: 'Maple Mono CN';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('fonts/maple-mono-cn-500.woff2') format('woff2');
+  unicode-range: U+2E80-2EFF, U+2F00-2FDF, U+3000-303F, U+3040-309F, U+30A0-30FF, U+3100-312F, U+3130-318F, U+3190-319F, U+31A0-31FF, U+3200-32FF, U+3300-33FF, U+3400-4DBF, U+4E00-9FFF, U+A000-A48F, U+A490-A4CF, U+AC00-D7AF, U+D7B0-D7FF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FF60, U+FFE0-FFE6, U+20000-2EBEF, U+2F800-2FA1F, U+30000-323AF;
+}
+@font-face {
+  font-family: 'Maple Mono CN';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('fonts/maple-mono-cn-600.woff2') format('woff2');
+  unicode-range: U+2E80-2EFF, U+2F00-2FDF, U+3000-303F, U+3040-309F, U+30A0-30FF, U+3100-312F, U+3130-318F, U+3190-319F, U+31A0-31FF, U+3200-32FF, U+3300-33FF, U+3400-4DBF, U+4E00-9FFF, U+A000-A48F, U+A490-A4CF, U+AC00-D7AF, U+D7B0-D7FF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FF60, U+FFE0-FFE6, U+20000-2EBEF, U+2F800-2FA1F, U+30000-323AF;
+}
+@font-face {
+  font-family: 'Maple Mono CN';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('fonts/maple-mono-cn-700.woff2') format('woff2');
+  unicode-range: U+2E80-2EFF, U+2F00-2FDF, U+3000-303F, U+3040-309F, U+30A0-30FF, U+3100-312F, U+3130-318F, U+3190-319F, U+31A0-31FF, U+3200-32FF, U+3300-33FF, U+3400-4DBF, U+4E00-9FFF, U+A000-A48F, U+A490-A4CF, U+AC00-D7AF, U+D7B0-D7FF, U+F900-FAFF, U+FE10-FE1F, U+FE30-FE4F, U+FF00-FF60, U+FFE0-FFE6, U+20000-2EBEF, U+2F800-2FA1F, U+30000-323AF;
+}

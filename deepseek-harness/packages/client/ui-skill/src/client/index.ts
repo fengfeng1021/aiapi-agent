@@ -39,7 +39,10 @@ import type { InputTriggerServiceContract, InputTriggerSource } from '@deepseek-
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only: pulls the sidebar SlotMap merge (the 'sidebar.footer.action' entry).
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { SkillRow } from './SkillRow.tsx'
+import { SkillsFooterAction } from './SkillsFooterAction.tsx'
 import { en, NS, zh, type SkillKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -66,6 +69,14 @@ export const inject = ['inputTriggers', 'sessions', 'slots', 'locale', 'remote',
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-skill: dictionaries')
+  ctx.slots.inject('sidebar.primary.action', () => ctx.slots.register({
+    name: 'sidebar.primary.action',
+    id: 'extensions-entry',
+    locale: NS,
+    inject: () => ({
+      listSkills: (sessionId, signal) => ctx.remote.skills.list({ sessionId }, signal),
+    }),
+  }, SkillsFooterAction))
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register(
     { name: 'tool.call.toolview', key: 'skill', locale: NS },
     SkillRow,

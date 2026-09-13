@@ -11,14 +11,18 @@ import type {
   EveryScheduleRecord,
   LocalAtInput,
   OneShotScheduleRecord,
+  ResolvedScheduleMetadata,
+  ScheduleActiveStatus,
   ScheduleChange,
   ScheduleId as ScheduleIdType,
+  ScheduleMetadata,
+  ScheduleNotifyPolicy,
   ScheduleRecord,
   ScheduleView,
 } from './types.ts'
 
-/** Durable Schedule protocol version implemented by this package. */
-export const SCHEDULE_CHANGE_VERSION = 1 as const
+/** Latest durable Schedule envelope version implemented by this package. Readers accept 1 and 2. */
+export const SCHEDULE_CHANGE_VERSION = 2 as const
 
 /** Fixed v1 lower bound for a fixed-rate reminder. */
 export const MIN_EVERY_INTERVAL_SECONDS = 300
@@ -381,10 +385,65 @@ function resolveLocalInstant(parts: CalendarParts, timeZone: string): number {
   return first
 }
 
-/** Decode the exact v1 after record shape. */
+/** Version-2 metadata keys accepted alongside the version-1 record keys. */
+export const SCHEDULE_META_KEYS = ['title', 'project', 'model', 'reasoning', 'notify', 'paused'] as const
+
+/** Require one trimmed non-empty metadata string. */
+function decodeMetaString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.length === 0 || value.trim() !== value) {
+    throw new ScheduleLogError(`schedule meta ${field} must be non-empty and already trimmed`)
+  }
+  return value
+}
+
+/**
+ * Decode one optional version-2 metadata object.
+ * @param value - Untrusted durable metadata value.
+ * @returns Detached, frozen Schedule metadata carrying only supplied keys.
+ */
+function decodeScheduleMetadata(value: unknown): ScheduleMetadata {
+  if (!isRecord(value)) throw new ScheduleLogError('schedule meta must be an object')
+  for (const key of Object.keys(value)) {
+    if ((SCHEDULE_META_KEYS as readonly string[]).includes(key)) continue
+    throw new ScheduleLogError(`schedule meta must only contain ${SCHEDULE_META_KEYS.join(', ')}`)
+  }
+  const notify = value['notify']
+  if (notify !== undefined && notify !== 'all' && notify !== 'on-failure' && notify !== 'never') {
+    throw new ScheduleLogError('schedule meta notify must be all, on-failure, or never')
+  }
+  const paused = value['paused']
+  if (paused !== undefined && typeof paused !== 'boolean') {
+    throw new ScheduleLogError('schedule meta paused must be a boolean')
+  }
+  return Object.freeze({
+    ...(value['title'] === undefined ? {} : { title: decodeMetaString(value['title'], 'title') }),
+    ...(value['project'] === undefined ? {} : { project: decodeMetaString(value['project'], 'project') }),
+    ...(value['model'] === undefined ? {} : { model: decodeMetaString(value['model'], 'model') }),
+    ...(value['reasoning'] === undefined ? {} : { reasoning: decodeMetaString(value['reasoning'], 'reasoning') }),
+    ...(notify === undefined ? {} : { notify }),
+    ...(paused === undefined ? {} : { paused }),
+  })
+}
+
+/** Decode the optional version-2 metadata beside exact version-1 record keys. */
+function decodeRecordMetadata(value: Record<string, unknown>): { readonly meta?: ScheduleMetadata } {
+  if (value['meta'] === undefined) return {}
+  return { meta: decodeScheduleMetadata(value['meta']) }
+}
+
+/** Whether a record carries exactly its version-1 keys, with optional version-2 metadata. */
+function hasRecordKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  return hasExactKeys(value, expected)
+    || hasExactKeys(value, [...expected, 'meta'])
+}
+
+/** Decode the exact v1 after record shape, with optional version-2 metadata. */
 function decodeAfterRecord(value: unknown): AfterScheduleRecord {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'kind', 'prompt', 'afterSeconds', 'scheduledAt'])) {
-    throw new ScheduleLogError('after schedule must contain exactly id, kind, prompt, afterSeconds, and scheduledAt')
+  if (!isRecord(value)
+    || !hasRecordKeys(value, ['id', 'kind', 'prompt', 'afterSeconds', 'scheduledAt'])) {
+    throw new ScheduleLogError(
+      'after schedule must contain exactly id, kind, prompt, afterSeconds, and scheduledAt, with optional meta',
+    )
   }
   const prompt = value['prompt']
   if (typeof prompt !== 'string' || prompt.length === 0 || prompt.trim() !== prompt) {
@@ -400,13 +459,16 @@ function decodeAfterRecord(value: unknown): AfterScheduleRecord {
     prompt,
     afterSeconds: afterSeconds as number,
     scheduledAt: decodeInstant(value['scheduledAt']),
+    ...decodeRecordMetadata(value),
   })
 }
 
-/** Decode the exact v1 absolute one-shot record shape. */
+/** Decode the exact v1 absolute one-shot record shape, with optional version-2 metadata. */
 function decodeAtRecord(value: unknown): AtScheduleRecord {
-  if (!isRecord(value) || !hasExactKeys(value, ['id', 'kind', 'prompt', 'scheduledAt'])) {
-    throw new ScheduleLogError('at schedule must contain exactly id, kind, prompt, and scheduledAt')
+  if (!isRecord(value) || !hasRecordKeys(value, ['id', 'kind', 'prompt', 'scheduledAt'])) {
+    throw new ScheduleLogError(
+      'at schedule must contain exactly id, kind, prompt, and scheduledAt, with optional meta',
+    )
   }
   const prompt = value['prompt']
   if (typeof prompt !== 'string' || prompt.length === 0 || prompt.trim() !== prompt) {
@@ -417,14 +479,17 @@ function decodeAtRecord(value: unknown): AtScheduleRecord {
     kind: 'at',
     prompt,
     scheduledAt: decodeInstant(value['scheduledAt']),
+    ...decodeRecordMetadata(value),
   })
 }
 
-/** Decode the exact v1 fixed-rate record shape. */
+/** Decode the exact v1 fixed-rate record shape, with optional version-2 metadata. */
 function decodeEveryRecord(value: unknown): EveryScheduleRecord {
   if (!isRecord(value)
-    || !hasExactKeys(value, ['id', 'kind', 'prompt', 'everySeconds', 'scheduledAt'])) {
-    throw new ScheduleLogError('every schedule must contain exactly id, kind, prompt, everySeconds, and scheduledAt')
+    || !hasRecordKeys(value, ['id', 'kind', 'prompt', 'everySeconds', 'scheduledAt'])) {
+    throw new ScheduleLogError(
+      'every schedule must contain exactly id, kind, prompt, everySeconds, and scheduledAt, with optional meta',
+    )
   }
   const prompt = value['prompt']
   if (typeof prompt !== 'string' || prompt.length === 0 || prompt.trim() !== prompt) {
@@ -443,6 +508,7 @@ function decodeEveryRecord(value: unknown): EveryScheduleRecord {
     prompt,
     everySeconds: everySeconds as number,
     scheduledAt: decodeInstant(value['scheduledAt']),
+    ...decodeRecordMetadata(value),
   })
 }
 
@@ -458,22 +524,33 @@ function decodeScheduleRecord(value: unknown): ScheduleRecord {
 }
 
 /**
- * Decode one strict version-1 `schedule/change` payload.
+ * Require a known durable envelope version. Writers still emit
+ * {@link SCHEDULE_CHANGE_VERSION}; version 2 envelopes carry record metadata.
+ * @param value - Untrusted durable version value.
+ * @returns The accepted envelope version.
+ */
+function decodeScheduleVersion(value: unknown): 1 | 2 {
+  if (value === 1 || value === 2) return value
+  throw new ScheduleLogError('schedule/change version must be 1 or 2')
+}
+
+/**
+ * Decode one strict version-1 or version-2 `schedule/change` payload.
+ * Version-1 records round-trip without injected metadata; version-2 records
+ * may carry the optional management metadata beside the version-1 keys.
  * @param value - Untrusted durable JSON value.
- * @returns Detached, frozen Schedule change.
+ * @returns Detached, frozen Schedule change echoing its envelope version.
  */
 export function decodeScheduleChange(value: unknown): ScheduleChange {
   if (!isRecord(value)) throw new ScheduleLogError('schedule/change payload must be an object')
-  if (value['version'] !== SCHEDULE_CHANGE_VERSION) {
-    throw new ScheduleLogError('schedule/change version must be 1')
-  }
+  const version = decodeScheduleVersion(value['version'])
   switch (value['operation']) {
     case 'create':
       if (!hasExactKeys(value, ['version', 'operation', 'schedule'])) {
         throw new ScheduleLogError('schedule create must contain exactly version, operation, and schedule')
       }
       return Object.freeze({
-        version: SCHEDULE_CHANGE_VERSION,
+        version,
         operation: 'create',
         schedule: decodeScheduleRecord(value['schedule']),
       })
@@ -482,7 +559,7 @@ export function decodeScheduleChange(value: unknown): ScheduleChange {
         throw new ScheduleLogError('schedule delete must contain exactly version, operation, and id')
       }
       return Object.freeze({
-        version: SCHEDULE_CHANGE_VERSION,
+        version,
         operation: 'delete',
         id: decodeId(value['id']),
       })
@@ -490,14 +567,14 @@ export function decodeScheduleChange(value: unknown): ScheduleChange {
     case 'dispatch': {
       if (hasExactKeys(value, ['version', 'operation', 'id'])) {
         return Object.freeze({
-          version: SCHEDULE_CHANGE_VERSION,
+          version,
           operation: 'dispatch',
           id: decodeId(value['id']),
         })
       }
       if (hasExactKeys(value, ['version', 'operation', 'id', 'acceptedAt'])) {
         return Object.freeze({
-          version: SCHEDULE_CHANGE_VERSION,
+          version,
           operation: 'dispatch',
           id: decodeId(value['id']),
           acceptedAt: decodeInstant(value['acceptedAt']),
@@ -660,12 +737,80 @@ export function allocateScheduleId(folded: FoldedSchedules): ScheduleIdType {
   return candidate
 }
 
+/** Require one trimmed non-empty metadata string, if the field is present. */
+function metaInputString(fields: Record<string, unknown>, key: string): string | undefined {
+  const value = fields[key]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new ScheduleInputError('invalid_rule', `schedule metadata ${key} must be a non-empty string.`)
+  }
+  return value.trim()
+}
+
+/** Require a known notification policy, if the field is present. */
+function metaInputNotify(value: unknown): ScheduleNotifyPolicy | undefined {
+  if (value === undefined) return undefined
+  if (value !== 'all' && value !== 'on-failure' && value !== 'never') {
+    throw new ScheduleInputError('invalid_rule', 'schedule metadata notify must be all, on-failure, or never.')
+  }
+  return value
+}
+
+/**
+ * Validate model-supplied management metadata, normalizing string padding.
+ * Write-time leniency complements the durable decoder's strictness: padded
+ * strings trim like prompts do, while unknown fields and mistyped values fail
+ * loudly instead of persisting unreadable metadata.
+ * @param value - Untrusted metadata value; undefined means no metadata.
+ * @returns Frozen validated metadata, or undefined when absent or empty.
+ */
+export function validateScheduleMetadataInput(value: unknown): ScheduleMetadata | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) {
+    throw new ScheduleInputError('invalid_rule', 'schedule metadata must be an object.')
+  }
+  for (const key of Object.keys(value)) {
+    if (!(SCHEDULE_META_KEYS as readonly string[]).includes(key)) {
+      throw new ScheduleInputError('invalid_rule', `unknown schedule metadata field "${key}".`)
+    }
+  }
+  const title = metaInputString(value, 'title')
+  const project = metaInputString(value, 'project')
+  const model = metaInputString(value, 'model')
+  const reasoning = metaInputString(value, 'reasoning')
+  const notify = metaInputNotify(value['notify'])
+  const paused = value['paused']
+  if (paused !== undefined && typeof paused !== 'boolean') {
+    throw new ScheduleInputError('invalid_rule', 'schedule metadata paused must be a boolean.')
+  }
+  const meta = {
+    ...(title === undefined ? {} : { title }),
+    ...(project === undefined ? {} : { project }),
+    ...(model === undefined ? {} : { model }),
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(notify === undefined ? {} : { notify }),
+    ...(paused === undefined ? {} : { paused }),
+  }
+  return Object.keys(meta).length === 0 ? undefined : Object.freeze(meta)
+}
+
+/**
+ * Select the durable envelope version for one new record: version 2 carries
+ * metadata while metadata-free records stay version 1 for older readers.
+ * @param record - Newly created durable record.
+ * @returns The envelope version its create change must carry.
+ */
+export function scheduleCreateVersion(record: ScheduleRecord): 1 | 2 {
+  return record.meta === undefined ? 1 : 2
+}
+
 /**
  * Validate a model after rule and compute its durable target.
  * @param id - Already allocated session-local id.
  * @param prompt - Reminder content supplied at creation.
  * @param afterSeconds - Requested positive delay.
  * @param now - Single creation-time wall-clock sample in epoch milliseconds.
+ * @param meta - Validated management metadata, if any.
  * @returns Frozen durable after record.
  */
 export function createAfterScheduleRecord(
@@ -673,6 +818,7 @@ export function createAfterScheduleRecord(
   prompt: string,
   afterSeconds: number,
   now: number,
+  meta?: ScheduleMetadata,
 ): AfterScheduleRecord {
   const normalizedPrompt = prompt.trim()
   if (normalizedPrompt.length === 0) {
@@ -689,6 +835,7 @@ export function createAfterScheduleRecord(
     prompt: normalizedPrompt,
     afterSeconds,
     scheduledAt: futureInstant(target, now),
+    ...(meta === undefined ? {} : { meta }),
   })
 }
 
@@ -698,6 +845,7 @@ export function createAfterScheduleRecord(
  * @param prompt - Reminder content supplied at creation.
  * @param at - Explicit-offset instant or structured local calendar value.
  * @param now - Single creation-time wall-clock sample in epoch milliseconds.
+ * @param meta - Validated management metadata, if any.
  * @returns Frozen durable absolute one-shot record.
  */
 export function createAtScheduleRecord(
@@ -705,6 +853,7 @@ export function createAtScheduleRecord(
   prompt: string,
   at: AtInput,
   now: number,
+  meta?: ScheduleMetadata,
 ): AtScheduleRecord {
   const normalizedPrompt = prompt.trim()
   if (normalizedPrompt.length === 0) {
@@ -740,6 +889,7 @@ export function createAtScheduleRecord(
     kind: 'at',
     prompt: normalizedPrompt,
     scheduledAt: futureInstant(target, now),
+    ...(meta === undefined ? {} : { meta }),
   })
 }
 
@@ -749,6 +899,7 @@ export function createAtScheduleRecord(
  * @param prompt - Reminder content supplied at creation.
  * @param everySeconds - Requested fixed safe-integer interval.
  * @param now - Single creation-time wall-clock sample in epoch milliseconds.
+ * @param meta - Validated management metadata, if any.
  * @returns Frozen durable fixed-rate record.
  */
 export function createEveryScheduleRecord(
@@ -756,6 +907,7 @@ export function createEveryScheduleRecord(
   prompt: string,
   everySeconds: number,
   now: number,
+  meta?: ScheduleMetadata,
 ): EveryScheduleRecord {
   const normalizedPrompt = prompt.trim()
   if (normalizedPrompt.length === 0) {
@@ -778,6 +930,7 @@ export function createEveryScheduleRecord(
     prompt: normalizedPrompt,
     everySeconds,
     scheduledAt: futureInstant(target, now),
+    ...(meta === undefined ? {} : { meta }),
   })
 }
 
@@ -793,6 +946,37 @@ export function scheduleView(record: ScheduleRecord, now: number): ScheduleView 
     state: now >= Date.parse(record.scheduledAt) ? 'overdue' : 'scheduled',
     deliveryMode: 'session-local',
   })
+}
+
+/** Default title length in Unicode code points, so surrogate pairs stay intact. */
+const DEFAULT_TITLE_CODE_POINTS = 40
+
+/**
+ * Derive effective version-2 metadata with presentation defaults.
+ * Version-1 records resolve to the prompt's leading text, all-run notices,
+ * and unpaused management; stored metadata overrides each default.
+ * @param record - Active durable record.
+ * @returns Effective management metadata.
+ */
+export function resolveScheduleMetadata(record: ScheduleRecord): ResolvedScheduleMetadata {
+  const meta = record.meta
+  return {
+    title: meta?.title ?? Array.from(record.prompt).slice(0, DEFAULT_TITLE_CODE_POINTS).join(''),
+    ...(meta?.project === undefined ? {} : { project: meta.project }),
+    ...(meta?.model === undefined ? {} : { model: meta.model }),
+    ...(meta?.reasoning === undefined ? {} : { reasoning: meta.reasoning }),
+    notify: meta?.notify ?? 'all',
+    paused: meta?.paused ?? false,
+  }
+}
+
+/**
+ * Derive one active reminder's management status from its durable metadata.
+ * @param record - Active durable record.
+ * @returns paused when the stored metadata pauses it, active otherwise.
+ */
+export function scheduleActiveStatus(record: ScheduleRecord): ScheduleActiveStatus {
+  return record.meta?.paused === true ? 'paused' : 'active'
 }
 
 /**

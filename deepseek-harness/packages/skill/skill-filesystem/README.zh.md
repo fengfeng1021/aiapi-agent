@@ -55,7 +55,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 
 ### 挂载与配置
 
-与 skill 注册表一起加载该插件；它需要 `ctx.skills`。
+与 skill 注册表一起加载该插件；它需要 `ctx.skills` 与 `ctx.tools`。
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -71,6 +71,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | `customSkillDirs` | `[]` | 其他本地 skill 根目录，位于项目根之后、用户根之前 |
 | `watch` | `true` | 监视本地根，并在目录可能变化时使提供方失效 |
 | `bundledSkillDir` | — | 配置后按 rank 600 扫描的内置 skill 根目录 |
+| `installTools` | `false` | 注册面向模型的 `skill_install`、`skill_enable` 与 `skill_disable` 工具 |
 
 其余 `watch*` 字段用于调节 Chokidar 行为——轮询、稳定窗口、间隔、项目上限与符号链接跟随。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-skill-filesystem)是每个字段的穷尽式真源。
 
@@ -81,6 +82,10 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 ### 可观察的成功与失败
 
 任一被扫描根目录下的有效 skill 都会按名称排序出现在会话目录中，加载它即可返回当前文件正文。缺少有效 frontmatter、名称无效或调用值无效的文件会随警告被跳过，因此模型目录不会收到逐 skill 诊断，也无法区分缺失的 skill 与无效的 skill。意外的发现或读取失败会让目录观测保持不完整，而不会用看似发生删除的结果替换最后一份可用视图。
+
+### 安装 skill
+
+将 `installTools` 设为 `true`，即可在发现能力之外为 agent 提供三个写文件系统工具：`skill_install` 在某个作用域根目录下写入单个 `<name>/SKILL.md` 包，无 `overwrite: true` 时拒绝覆盖；`skill_enable` 与 `skill_disable` 只重写已安装 skill 的两个调用标记。作用域是发现根目录的可写子集——`project-dsh`（默认）、`project-agents`、`user-dsh`、`user-agents`，以及仅限已配置 `customSkillDirs` 的 `custom`。该包还在每个组合中提供内置的 `skill-installer` 指引 skill；编写新 skill 时请将其与工具配合使用。安装器写入直接使用宿主 Node I/O，因为 skill 根目录位于任何会话文件系统作用域之外；包含本包并设置 `installTools` 的组合行即策略门禁。
 
 -----
 
@@ -101,6 +106,9 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口、提供方、根解析、frontmatter 解析、监视管理器 |
+| [`src/install.ts`](src/install.ts) | 受控安装器：校验、路径解析、渲染与文件编排 |
+| [`src/install-tools.ts`](src/install-tools.ts) | 面向模型的安装器工具定义 |
+| [`src/bundled-installer.ts`](src/bundled-installer.ts) | 内置 `skill-installer` 指引提供方 |
 | [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件 |
 
 ### 发现流程
@@ -130,7 +138,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 <a id="model-experience"></a>
 ## 模型体验
 
-通过 `dsh-tool-skill` 间接影响模型；它把该提供方的可调用名称和有长度上限的描述渲染到初始目录或替换目录中，并把所选的当前指令正文与资源基底指引渲染到已保留工具历史中；路径、提供方 rank 与已禁用 skill 仍被隐藏。
+通过 `dsh-tool-skill` 间接影响模型；它把该提供方的可调用名称和有长度上限的描述渲染到初始目录或替换目录中，并把所选的当前指令正文与资源基底指引渲染到已保留工具历史中；路径、提供方 rank 与已禁用 skill 仍被隐藏。将 `installTools` 设为 `true` 后，`skill_install`、`skill_enable` 与 `skill_disable` 直接返回小型 JSON 结果；安装器指引 skill 本身的渲染方式与任何已发现 skill 相同。
 
 #### KV Cache 影响
 
@@ -148,6 +156,8 @@ watcher 触发的失效可促使上述消费方在现有请求历史中追加替
 - **格式错误的条目随警告消失**——模型目录不会收到逐 skill 诊断，无法区分缺失的 skill 与无效的 skill；意外的 I/O 失败则会保留最后一份可用目录。
 - **缺失根观察每次轮询一个路径段**——启动时不存在的根会使用 `fs.watchFile` 按 `watchPollIntervalMs` 轮询，直至 Chokidar 可以附加；这以有界检测延迟换取跨 IDE、Git 与 shell 工作流的可靠创建检测。
 - **无正文修订协议**——已加载正文是普通的已保留工具历史；后续文件编辑会影响后续调用，但既不会改写旧结果，也不会通知正文已变化。
+- **安装器写入绕过会话文件系统策略**——安装根目录位于任何会话作用域之外，因此工具直接使用宿主 Node I/O；仅在允许 agent 写入 skill 的组合中挂载 `installTools: true`。
+- **开关写入显式标记**——启用或禁用会把 `disable-model-invocation` 与 `user-invocable` 重写为显式布尔值，而不是恢复缺省的缺席状态。
 
 <a id="dev-note"></a>
 ### 开发备注

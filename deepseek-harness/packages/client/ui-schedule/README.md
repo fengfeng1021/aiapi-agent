@@ -39,6 +39,10 @@ Each row shows the complete wrapping prompt, a separate Scheduled or Overdue sta
 
 Only the native trigger button enters the tab order. Enter and Space use normal button activation; while focus remains on the trigger or catalog, Escape closes the popover and restores trigger focus; an outside pointer press dismisses it. If a live update removes the final record, the component closes and unmounts without moving focus to another header action. A failed Session open hides the trigger even when a tentative cached projection exists.
 
+### Triage reminders from the sidebar
+
+The same composition contributes a `sidebar.footer.action` entry that opens a manager panel over the session list projection mirror (`projectionValues.schedule`), so triage works without a selected conversation view. The panel shares the catalog's ordering and formatting, adds content search and All, Scheduled, Overdue, and Paused filters, and expands rows into the full prompt with the stored version-2 metadata (project, model, reasoning effort, notification policy) where present. Like the catalog it is read-only: creating, pausing, and deleting stay with the Schedule tools, and finished reminders leave no history because dispatch removes them from the active set.
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -55,6 +59,9 @@ The browser plugin contributes `schedule-catalog` to `conversation.session.heade
 |---|---|
 | [`src/client/index.ts`](src/client/index.ts) | Browser entry: locale registration and Session-header slot contribution |
 | [`src/client/ScheduleCatalogAction.tsx`](src/client/ScheduleCatalogAction.tsx) | Visibility, ordering, formatting, popover, and keyboard behavior |
+| [`src/client/SchedulesFooterAction.tsx`](src/client/SchedulesFooterAction.tsx) | Sidebar manager panel: triage filters, search, detail, and version-2 metadata |
+| [`src/client/ScheduleManager.module.css`](src/client/ScheduleManager.module.css) | Manager panel chrome |
+| [`src/client/FooterAction.module.css`](src/client/FooterAction.module.css) | Sidebar footer button chrome |
 | [`src/client/locales.ts`](src/client/locales.ts) | English and Chinese catalog copy |
 | [`src/index.ts`](src/index.ts) | Empty Host apply that keeps the optional browser feature addressable by Loader |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion; the package owns no mutable cross-plugin state |
@@ -96,6 +103,7 @@ These limits define the current Schedule catalog. They are current package const
 - **Active records only** — terminal delete and dispatch transitions remove rows; the ordinary transcript remains the only reminder-delivery history.
 - **Browser-derived time** — local and relative labels use the viewing browser's current locale, time zone, and clock. They are presentation values, not durable Schedule facts.
 - **Read-only surface** — creating and deleting reminders remain with the Schedule tools; the catalog has no mutation, retry, acknowledgement, toast, or delivery-receipt semantics.
+- **Manager triages without mutating** — pausing and deleting stay with the Schedule tools, and finished reminders leave no completed history because dispatch removes them from the active set; the manager filters only what the projection currently holds.
 - **Open Session required** — a failed open hides even a tentative cached value because strict Session replay remains authoritative.
 
 <a id="dev-note"></a>

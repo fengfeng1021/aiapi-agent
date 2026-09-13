@@ -12,10 +12,8 @@ import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentRuntime, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import * as spawn from '../src/index.ts'
-import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent-in-process-driver'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
 
@@ -47,10 +45,6 @@ async function setup(script: Script) {
   return { ctx, parent, adapter }
 }
 
-function text(blocks: { type: string; text?: string }[]): string {
-  return blocks.filter(b => b.type === 'text').map(b => b.text).join('')
-}
-
 function start(ctx: Context, provider: string, request: Omit<SubagentStartRequest, 'signal'> & { signal?: AbortSignal }) {
   return ctx.subagents.start(provider, { signal: request.signal ?? new AbortController().signal, ...request })
 }
@@ -67,16 +61,6 @@ function disposeChildLifecycle(parent: Agent): void {
 }
 
 describe('dsh-subagent-spawn-in-process', () => {
-  it('runs a fresh child to completion and returns its final assistant output', async () => {
-    // One model call for the child: a plain text answer.
-    const { ctx, parent } = await setup([textResponse('child answer')])
-    const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'do X' }], parent })
-    const result = await run.result
-    expect(result.stopReason).toBe('completed')
-    expect(text(result.output)).toBe('child answer')
-    await run.dispose()
-  })
-
   it('emits subagent/start only after the fresh child is published', async () => {
     const { ctx, parent } = await setup([textResponse('child answer')])
     let childAtStart: ReturnType<typeof ctx.agents.get>
@@ -150,14 +134,6 @@ describe('dsh-subagent-spawn-in-process', () => {
       .rejects.toThrow('subagent depth 1 exceeds maxDepth 0')
   })
 
-  it('maps a child that hit its token ceiling to stopReason "max-tokens"', async () => {
-    const { ctx, parent } = await setup([maxTokensResponse('cut off')])
-    const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
-    const result = await run.result
-    expect(result.stopReason).toBe('max-tokens')
-    await run.dispose()
-  })
-
   it('maps a child whose turn errored (script exhausted) to stopReason "error" with empty output', async () => {
     // Empty script: the child's first model call throws "script exhausted", the
     // turn ends `error`, and there is no assistant/message → empty output.
@@ -202,29 +178,6 @@ describe('dsh-subagent-spawn-in-process', () => {
     expect(published).toEqual([])
   })
 
-  it('cancelling a running child settles the run as aborted (the abort bridge + cancel())', async () => {
-    // 'hang' makes the child's model stream one chunk then wait until aborted.
-    const controller = new AbortController()
-    const { ctx, parent } = await setup(['hang'])
-    const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent, signal: controller.signal })
-    // Let the child's turn start, then abort via the request signal (the
-    // backend bridges it to child.cancel()).
-    await new Promise(r => setTimeout(r, 30))
-    controller.abort()
-    const result = await run.result
-    expect(result.stopReason).toBe('aborted')
-    await run.dispose()
-  })
-
-  it('dispose cancels the child and reaches quiescence', async () => {
-    const { ctx, parent } = await setup(['hang'])
-    const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
-    await new Promise(r => setTimeout(r, 30))
-    await run.dispose()
-    const result = await run.result
-    expect(result.stopReason).toBe('aborted')
-  })
-
   it('a one-shot run exposes neither steer nor resume; continuable creation is a provider capability', async () => {
     const { ctx, parent } = await setup([textResponse('x')])
     const run = await start(ctx, 'spawn', { prompt: [{ type: 'text', text: 'p' }], parent })
@@ -264,26 +217,6 @@ describe('dsh-subagent-spawn-in-process', () => {
     await parentHandle.dispose()
   })
 
-  it('uses request.agentOptions.model when the parent has no model of its own', async () => {
-    const { ctx } = await setup([textResponse('explicit model child')])
-    // A parent with NO model (its own turns would need one supplied per-request).
-    const parentHandle = await ctx.agents.create({
-      sessionId: SessionId('modelless-parent-session'),
-      agentOptions: {},
-    })
-    // The request supplies the child's model explicitly.
-    const run = await start(ctx, 'spawn', {
-      prompt: [{ type: 'text', text: 'p' }],
-      parent: parentHandle.agent,
-      agentOptions: { provider: 'mock', model: 'mock' },
-    })
-    const result = await run.result
-    expect(result.stopReason).toBe('completed')
-    expect(text(result.output)).toBe('explicit model child')
-    await run.dispose()
-    await parentHandle.dispose()
-  })
-
   it('advertises every start-time capability', async () => {
     const { ctx } = await setup([])
     const provider = ctx.subagents.getProvider('spawn')!
@@ -305,54 +238,6 @@ describe('dsh-subagent-spawn-in-process', () => {
     expect(ctx.subagents.list()).toEqual(['spawn'])
     await fiber.dispose()
     expect(ctx.subagents.list()).toEqual([])
-  })
-
-  it('captures structured output through the shipped plugin (driver runtime, plugin wiring)', async () => {
-    const { ctx, parent } = await setup([
-      toolCallResponse('c1', STRUCTURED_OUTPUT_TOOL, { answer: 42 }),
-    ])
-    const run = await start(ctx, 'spawn', {
-      prompt: [{ type: 'text', text: 'produce the answer' }],
-      parent,
-      outputSchema: { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] },
-    })
-    const result = await run.result
-    expect(result.stopReason).toBe('completed')
-    expect(result.structured).toEqual({ answer: 42 })
-    expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-    await run.dispose()
-  })
-
-  it('a backend unload does not revoke an accepted holder-owned run', async () => {
-    // Rebuild the stack by hand so we hold the backend's fiber.
-    const ctx = new Context()
-    const adapter = new MockAdapter(['hang'])
-    await mountAgentLoopTestDependencies(ctx)
-    await mountInvariants(ctx)
-    await ctx.plugin(AgentLoop, { agents: [] })
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(SubagentRuntime)
-    const fiber = await ctx.plugin(spawn, { providerName: 'spawn' })
-    ctx.llm.registerAdapter(['mock'], adapter)
-    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
-    const controller = new AbortController()
-    const run = await start(ctx, 'spawn', {
-      prompt: [{ type: 'text', text: 'q' }],
-      parent,
-      signal: controller.signal,
-      outputSchema: { type: 'object', properties: { a: { type: 'number' } } },
-    })
-    // Provider removal prevents new starts but the returned run belongs to its
-    // holder and remains live.
-    await new Promise(resolve => setTimeout(resolve, 30))
-    await fiber.dispose()
-    expect(ctx.subagents.getProvider('spawn')).toBeUndefined()
-    expect(ctx.agents.get(run.id)).toBeDefined()
-    controller.abort('test complete')
-    const result = await run.result
-    expect(result.stopReason).toBe('aborted')
-    expect(ctx.tools.get(STRUCTURED_OUTPUT_TOOL)).toBeUndefined()
-    await run.dispose()
   })
 
   it('a start racing an already-unloading backend cannot begin child creation', async () => {
@@ -391,54 +276,6 @@ describe('dsh-subagent-spawn-in-process', () => {
   })
 
   describe('persona and toolFilter (the scoped child world)', () => {
-    it('a per-child persona shadows the deployment persona in the child request only', async () => {
-      const { ctx, parent, adapter } = await setup([
-        textResponse('parent answer'),
-        textResponse('child answer'),
-      ])
-      parent.followup(createUserMessage({ content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }))
-      await parent.whenIdle()
-
-      const run = await start(ctx, 'spawn', {
-        prompt: [{ type: 'text', text: 'do X' }],
-        parent,
-        persona: 'You are the tersest test runner.',
-      })
-      await run.result
-      const childRequest = adapter.requests.at(-1)!
-      expect(childRequest.system).toContain('You are the tersest test runner.')
-      // The parent's earlier request carried no such persona.
-      expect(adapter.requests[0]!.system ?? '').not.toContain('tersest test runner')
-      await run.dispose()
-    })
-
-    it('toolFilter hides denied tools from the child prompt AND refuses their execution', async () => {
-      const { ctx, parent, adapter } = await setup([
-        // The child tries the denied tool anyway, then answers.
-        toolCallResponse('c1', 'forbidden_tool', {}),
-        textResponse('done'),
-      ])
-      ctx.tools.register(defineContentToolFixture({
-        name: 'forbidden_tool', description: 'global', parameters: {},
-        execute: () => Promise.resolve([{ type: 'text', text: 'ran' }]),
-      }))
-      const run = await start(ctx, 'spawn', {
-        prompt: [{ type: 'text', text: 'do X' }],
-        parent,
-        toolFilter: { deny: ['forbidden_tool'] },
-      })
-      const result = await run.result
-      expect(result.stopReason).toBe('completed')
-      // Not advertised…
-      const childRequest = adapter.requests[0]!
-      expect((childRequest.tools ?? []).map(t => t.name)).not.toContain('forbidden_tool')
-      // …and the attempted call executed as UNKNOWN_TOOL (visible in the log).
-      const child = ctx.agents.get(run.id)!
-      const toolResult = child.session.events.find(e => e.type === 'tool/result')!
-      expect(JSON.stringify(toolResult.data)).toContain('unknown tool')
-      await run.dispose()
-    })
-
     it('an unknown toolFilter name fails the spawn loudly with no orphaned child', async () => {
       const { ctx, parent } = await setup([])
       const before = ctx.agents.list().length

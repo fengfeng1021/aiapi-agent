@@ -8,8 +8,9 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './AttachmentRail.module.css'
 
-/** One rail thumbnail; strings arrive resolved (zero-cordis atom). */
-export interface AttachmentRailItem {
+/** One image thumbnail; strings arrive resolved (zero-cordis atom). */
+export interface AttachmentRailImageItem {
+  kind: 'image'
   /** Stable identity for the React key. */
   id: string
   /** Object or data URL rendered as the thumbnail. */
@@ -19,6 +20,22 @@ export interface AttachmentRailItem {
   /** Accessible label of the item's remove control. */
   removeLabel: string
 }
+
+/** One host-path file card: icon, display name, and type label. */
+export interface AttachmentRailFileItem {
+  kind: 'file'
+  /** Stable identity for the React key. */
+  id: string
+  /** Display name, middle-truncated by CSS. */
+  name: string
+  /** Uppercase type label (extension or the owner's fallback). */
+  typeLabel: string
+  /** Accessible label of the item's remove control. */
+  removeLabel: string
+}
+
+/** One rail item; strings arrive resolved (zero-cordis atom). */
+export type AttachmentRailItem = AttachmentRailImageItem | AttachmentRailFileItem
 
 /** Rail-level strings the owner resolves from its own locale namespace. */
 export interface AttachmentRailLabels {
@@ -164,7 +181,28 @@ export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, on
         aria-label={labels.group}
         onScroll={updateEdges}
       >
-        {items.map(item => (
+        {items.map(item => item.kind === 'file' ? (
+          <div key={item.id} className={css.fileCard}>
+            <span className={css.fileIcon} aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 1.8H4.6a1.6 1.6 0 0 0-1.6 1.6v9.2a1.6 1.6 0 0 0 1.6 1.6h6.8a1.6 1.6 0 0 0 1.6-1.6V5.4L9 1.8Z" />
+                <path d="M9 1.8v3.6h4" />
+              </svg>
+            </span>
+            <span className={css.fileMeta}>
+              <span className={css.fileName} title={item.name}>{item.name}</span>
+              <span className={css.fileType}>{item.typeLabel}</span>
+            </span>
+            <button
+              type="button"
+              className={css.fileRemove}
+              aria-label={item.removeLabel}
+              onClick={() => { onRemove(item) }}
+            >
+              <IconCloseFill14 size={12} />
+            </button>
+          </div>
+        ) : (
           <div key={item.id} className={css.item}>
             <button
               type="button"

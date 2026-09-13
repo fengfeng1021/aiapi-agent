@@ -66,7 +66,7 @@ kind: "package-reference"
 | `dsh-jobs`、`dsh-tool-todo`、`dsh-time-context` | 任务快照字段关系、整表 todo 形状、持久时钟读数 |
 | `dsh-credentials`、`dsh-settings`、`dsh-storage-domain`、`dsh-workspace` | 提交事件对照活动服务或内存状态、实体缓存镜像 |
 | `dsh-agent-presets`、`dsh-session-title`、`dsh-plan-mode`、`dsh-schedule`、`dsh-webserver` | preset 挂载位置、标题来源引用、plan-mode 载荷、schedule 流、路由 disposer 对称性 |
-| `dsh-client-hmr`、`dsh-client-modules`、`dsh-client-runtime` | 浏览器/node 侧 stat-watcher 生命周期、启动入口图、slot 变更版本化 |
+| `dsh-client-hmr`、`dsh-client-modules` | 浏览器/node 侧 stat-watcher 生命周期、启动入口图 |
 
 其余每个工作区包都发布一个空配套入口，并以 `No runtime invariant:` 说明为何没有可检查的内容。
 

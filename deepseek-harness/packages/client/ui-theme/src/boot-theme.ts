@@ -6,12 +6,21 @@
  */
 
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
-import { DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, type ThemePreference } from './theme-settings.ts'
+import {
+  DEFAULT_CJK_FONT, DEFAULT_CJK_WEIGHT, DEFAULT_FONT_SIZE, DEFAULT_LATIN_FONT, DEFAULT_LATIN_WEIGHT,
+  DEFAULT_PREFERENCE, cjkLetterSpacing, fontStacks, fontWeightAxes, type CjkFont, type LatinFont, type ThemePreference,
+} from './theme-settings.ts'
 
 /** Build the inline script body for one schema-validated durable theme section. */
-function bootThemeScript(preference: ThemePreference, fontSize: number): string {
+function bootThemeScript(
+  preference: ThemePreference, fontSize: number, latinFont: LatinFont, cjkFont: CjkFont,
+  latinWeight: number, cjkWeight: number,
+): string {
   return `(() => {
   const preference = ${JSON.stringify(preference)}
+  const stacks = ${JSON.stringify(fontStacks(latinFont, cjkFont))}
+  const spacing = ${JSON.stringify(cjkLetterSpacing(cjkFont))}
+  const weights = ${JSON.stringify(fontWeightAxes(latinFont, latinWeight, cjkFont, cjkWeight))}
   const systemDark = preference === 'system'
     && typeof matchMedia !== 'undefined'
     && matchMedia('(prefers-color-scheme: dark)').matches
@@ -19,6 +28,11 @@ function bootThemeScript(preference: ThemePreference, fontSize: number): string 
   document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
   document.body.toggleAttribute('data-ds-dark-theme', dark)
   document.body.style.setProperty('--dsh-content-font-size', ${JSON.stringify(`${fontSize}px`)})
+  document.body.style.setProperty('--dsw-font-family', stacks.ui)
+  document.body.style.setProperty('--ds-font-family-code', stacks.code)
+  document.body.style.setProperty('--dsw-font-weight', String(weights.body))
+  document.body.style.setProperty('--ds-font-weight-code', String(weights.code))
+  document.body.style.setProperty('--dsh-cjk-letter-spacing', spacing)
 })()`
 }
 
@@ -32,6 +46,10 @@ function bootThemeScript(preference: ThemePreference, fontSize: number): string 
 export function bootThemeInjection(
   preference: ThemePreference = DEFAULT_PREFERENCE,
   fontSize: number = DEFAULT_FONT_SIZE,
+  latinFont: LatinFont = DEFAULT_LATIN_FONT,
+  cjkFont: CjkFont = DEFAULT_CJK_FONT,
+  latinWeight: number = DEFAULT_LATIN_WEIGHT,
+  cjkWeight: number = DEFAULT_CJK_WEIGHT,
 ): IndexInjection {
-  return { kind: 'script', placement: 'body', text: bootThemeScript(preference, fontSize) }
+  return { kind: 'script', placement: 'body', text: bootThemeScript(preference, fontSize, latinFont, cjkFont, latinWeight, cjkWeight) }
 }

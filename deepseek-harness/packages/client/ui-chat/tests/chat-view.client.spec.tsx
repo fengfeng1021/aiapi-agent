@@ -1903,15 +1903,18 @@ describe('ChatView', () => {
     expect(h.forkAt).not.toHaveBeenCalled()
   })
 
-  it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal', () => {
+  it('renders assistant Markdown across history, streaming, final, and interrupted states while user text stays literal apart from inline code', () => {
     const markdown = '# Rendered\n\n- **one**\n- `two`'
     const h = makeHarness({ nodes: [user(1, markdown), assistant(2, markdown)] })
     const view = render(<h.ChatView {...h.props} />)
     expect(view.container.querySelectorAll('h1')).toHaveLength(1)
-    const literal = view.getByText((_content, element) => (
-      element?.tagName === 'SPAN' && element.childElementCount === 0 && element.textContent === markdown
-    ))
-    expect(literal.querySelector('h1')).toBeNull()
+    // User text never becomes block Markdown, but backtick spans read as
+    // inline code, so the bubble holds elements instead of one literal span.
+    const userBubble = view.container.querySelector('[data-chat-flow-kind="user"]')
+    expect(userBubble).toBeTruthy()
+    expect(userBubble?.querySelector('h1')).toBeNull()
+    expect(userBubble?.querySelector('code')?.textContent).toBe('two')
+    expect(userBubble?.textContent).toContain('# Rendered')
 
     act(() => {
       h.setChat({ partial: { turn: 2, step: 1, blocks: [{ kind: 'text', text: markdown }] } })
@@ -1997,7 +2000,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     expect(view.getByTestId('tool-seat-r1')).toBeTruthy()
     expect(h.toolOwners[0]?.block).toMatchObject({ callId: 'r1', argsRaw: '{"command":"cmd-r1"}' })
-    expect(view.getByRole('status').textContent).toBe('深度求索中...')
+    expect(view.getByRole('status').textContent).toBe('思考中...')
   })
 
   it('keeps the Tool renderer mounted when a running call settles into log order', () => {
@@ -2057,7 +2060,7 @@ describe('ChatView', () => {
     const view = render(<h.ChatView {...h.props} />)
     // Freshly mounted (as after a reload) yet already past the 15s gate.
     const status = view.getByRole('status')
-    expect(status.textContent).toMatch(/^深度求索中\.\.\.2分0\d秒$/)
+    expect(status.textContent).toMatch(/^思考中\.\.\.2分0\d秒$/)
     expect(status.querySelector('[aria-hidden="true"]')).not.toBeNull()
     act(() => {
       h.setSession({ queue: [{
@@ -2069,7 +2072,7 @@ describe('ChatView', () => {
         text: 'also',
       }] })
     })
-    expect(status.textContent).toMatch(/^深度求索中\.\.\.2分0\d秒$/)
+    expect(status.textContent).toMatch(/^思考中\.\.\.2分0\d秒$/)
   })
 
   it('hands each ordered root call to the keyed business-node slot', () => {

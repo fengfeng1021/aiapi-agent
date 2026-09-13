@@ -11,6 +11,7 @@ import { basename } from 'node:path'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
@@ -235,6 +236,15 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * The session-persistence backend backing this registry's sessions.
+   * Exposed so command layers can delete durable logs without taking a
+   * direct dependency on the persistence package.
+   */
+  get sessionPersistence(): SessionPersistence {
+    return this.ctx.sessionPersistence
+  }
+
+  /**
    * Archive one session durably. The session must exist (live or in session
    * persistence); its workspace accounting — or lack of one — is irrelevant.
    * An already archived id resolves without writing.
@@ -251,6 +261,38 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Detach one session from every workspace and drop it from the archive set,
+   * without touching its session log. The durable session log itself is
+   * removed by the caller (session persistence `delete`); this method only
+   * clears registry accounting so the id vanishes from grouping surfaces and
+   * can never be unarchived back. Unknown ids resolve `false` without writing.
+   * @param sessionId - The session to detach.
+   * @returns `true` when accounting referenced the id, `false` when unknown.
+   */
+  deleteSession(sessionId: SessionId): Promise<boolean> {
+    return this.enqueueOperation(async () => {
+      let touched = false
+      for (const entity of this.entities.values()) {
+        if (!entity.sessionIds.includes(sessionId)) continue
+        await entity.detachSession(sessionId)
+        touched = true
+      }
+      const state = this.requireState()
+      if (state.archivedSessionIds.includes(sessionId)) {
+        await this.setState({
+          ...state,
+          archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+        })
+        touched = true
+      }
+      this.headers.delete(sessionId)
+      this.sessionPaths.delete(sessionId)
+      this.invalidSessionPaths.delete(sessionId)
+      return touched
     })
   }
 

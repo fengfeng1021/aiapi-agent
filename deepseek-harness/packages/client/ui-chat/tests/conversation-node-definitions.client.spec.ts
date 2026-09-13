@@ -226,6 +226,15 @@ describe('built-in conversation node Definitions', () => {
     expect(items[0]?.prompt.endsWith('…')).toBe(true)
   })
 
+  it('drops submit-appended file references from the rail prompt preview', () => {
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'user/message', textMessage('user-1', '檔名是什麼\n@C:\\dropped\\streambot-2026.json'), { surfaceOp: 'append' }),
+    ])
+    const items = snapshot(value).navigation.items()
+    expect(items[0]?.prompt).toBe('檔名是什麼')
+  })
+
   it('classifies reply content separately from reasoning and Tool protocol blocks', () => {
     expect(hasAssistantReplyContent([{ kind: 'text', text: '  ' }])).toBe(false)
     expect(hasAssistantReplyContent([{ kind: 'reasoning', text: 'thinking' }])).toBe(false)

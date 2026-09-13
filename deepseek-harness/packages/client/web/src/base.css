@@ -11,21 +11,25 @@ body,
 body {
   font-family: var(
     --dsw-font-family,
+    'Cascadia Mono',
+    'Microsoft YaHei UI',
+    'Microsoft YaHei',
+    'Microsoft JhengHei UI',
+    'Microsoft JhengHei',
     -apple-system,
     BlinkMacSystemFont,
     'Segoe UI',
     'PingFang SC',
     'Hiragino Sans GB',
-    'Microsoft YaHei',
     'Helvetica Neue',
     Helvetica,
     Arial,
     sans-serif
   );
-  /* Grayscale antialiasing over subpixel rendering: WebKit/Blink and the
-     Firefox macOS equivalent; other engines ignore both lines. */
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Windows Terminal parity: keep ClearType subpixel rendering so Chinese
+     strokes stay thick like the terminal; grayscale/antialiased thins them. */
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
   color: var(--dsw-alias-label-primary, #0f1115);
   background: var(--dsw-alias-bg-base, #fff);
   /* Supporting browsers insert CJK/Latin spacing in inherited prose. */

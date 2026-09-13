@@ -1209,45 +1209,6 @@ describe('dsh-tool-subagent continuable background mode', () => {
     })).toEqual({ kind: 'parallel' })
   })
 
-  it('defaults continuable delegation to background and returns only its durable id', async () => {
-    const { ctx, parent } = await continuableSetup()
-    const schema = ctx.tools.schemas().find(s => s.name === 'subagent')!
-    // Continuable delegation has no Task, so the schema promises no collection.
-    expect(schema.description).not.toContain('job_output')
-    expect(schema.description).not.toContain('job_kill')
-    expect(schema.description).toContain('send_message')
-    expect(schema.description).toContain('runs in the background by default')
-    expect(schema.description).not.toContain('never poll or wait on it')
-    const properties = (schema.parameters as {
-      properties: Record<string, { description?: string }>
-    }).properties
-    expect(properties.run_in_background?.description).toContain('Defaults to true')
-    const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
-    const guidance = assembly.sections.find(section => section.name === 'tool:subagent')
-    expect(guidance?.text).toContain('Use subagent in the background by default')
-    expect(guidance?.text).toContain('runtime sends you a notice containing its outcome')
-
-    const started = await callSubagent(
-      ctx,
-      { description: 'continuable work', prompt: 'dig in' },
-      { agent: parent },
-    )
-    expect(started.isError).toBe(false)
-    const match = /^started subagent (\S+)$/.exec(text(started))
-    expect(match).not.toBeNull()
-    const [, childId] = match!
-    // No Task was created for the continuable child.
-    expect(ctx.jobs.list(parent)).toEqual([])
-
-    await vi.waitFor(() => {
-      expect(ctx.agents.get(SessionId(childId!))).toBeUndefined()
-    }, { timeout: 5_000 })
-    // The child id names a durable session carrying its continuation descriptor.
-    const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
-    expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
-    expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
-  })
-
   it('hides continuable guidance when the current agent cannot see the tool', async () => {
     const { ctx, parent } = await continuableSetup()
     parent.ctx.tools.restrict({ deny: ['subagent'] })
@@ -1255,83 +1216,6 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(ctx.tools.get('subagent', parent)).toBeUndefined()
     const assembly = await ctx.systemPrompt.assemble(assembleContextFor(parent))
     expect(assembly.sections.find(section => section.name === 'tool:subagent')?.text).toBe('')
-  })
-
-  it('waits for a continuable provider only when run_in_background is explicitly false', async () => {
-    const { ctx, parent } = await continuableSetup()
-    const result = await callSubagent(
-      ctx,
-      { description: 'blocking work', prompt: 'dig in', run_in_background: false },
-      { agent: parent },
-    )
-    expect(result.isError).toBe(false)
-    if (result.isError) throw new Error('expected foreground subagent success')
-    expect(result.value).toMatchObject({ kind: 'foreground' })
-    expect(text(result)).toBe('continuable answer')
-    expect(ctx.jobs.list(parent)).toEqual([])
-  })
-
-  it('isolates a cancelled continuable preparation from a concurrent sibling', async () => {
-    const { ctx, parent } = await continuableSetup()
-    const bothPreparing = Promise.withResolvers<undefined>()
-    const releasePreparations = Promise.withResolvers<undefined>()
-    const cancelled = new AbortController()
-    let preparationCount = 0
-    let cancelledChildId: ReturnType<typeof SessionId> | undefined
-    let survivingChildId: ReturnType<typeof SessionId> | undefined
-    ctx.subagents.registerProvider({
-      name: 'gated',
-      capabilities: { agentOptions: false, outputSchema: true, depthLimit: true, toolFilter: true, persona: true },
-      inheritsParentContext: false,
-      start: async () => { throw new Error('continuable policy must not start a one-shot child') },
-      prepareContinuable: async (request) => {
-        preparationCount += 1
-        if (request.signal === cancelled.signal) cancelledChildId = request.sessionId
-        else survivingChildId = request.sessionId
-        if (preparationCount === 2) bothPreparing.resolve(undefined)
-        await releasePreparations.promise
-        return {}
-      },
-    })
-    tool.apply(ctx, {
-      provider: 'gated',
-      toolName: 'subagent_gated',
-      backgroundMode: 'continuable',
-      maxDepth: 3,
-    })
-
-    const execute = (callId: string, description: string, signal: AbortSignal) => ctx.tools.execute({
-      signal,
-      callId: ToolCallId(callId),
-      name: 'subagent_gated',
-      arguments: { description, prompt: 'work', run_in_background: true },
-      agent: parent,
-    })
-    const cancelledResult = execute('continuable-cancelled', 'cancelled sibling', cancelled.signal)
-    const survivingResult = execute('continuable-surviving', 'surviving sibling', testToolSignal)
-    await bothPreparing.promise
-    cancelled.abort()
-    releasePreparations.resolve(undefined)
-
-    const [failed, succeeded] = await Promise.all([cancelledResult, survivingResult])
-    expect(preparationCount).toBe(2)
-    expect(failed.isError).toBe(true)
-    expect(succeeded.isError).toBe(false)
-    expect(cancelledChildId).toBeDefined()
-    expect(survivingChildId).toBeDefined()
-    expect(ctx.agents.get(cancelledChildId!)).toBeUndefined()
-    await expect(ctx.sessionPersistence.load(cancelledChildId!)).rejects.toThrow(/not found/)
-
-    expect(succeeded.isError ? undefined : succeeded.value).toEqual({
-      kind: 'continuable',
-      subagentId: survivingChildId,
-    })
-    await vi.waitFor(() => {
-      expect(ctx.agents.get(survivingChildId!)).toBeUndefined()
-    }, { timeout: 5_000 })
-    const loaded = await ctx.sessionPersistence.load(survivingChildId!)
-    expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
-    expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
 
 })

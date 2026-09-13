@@ -20,20 +20,25 @@ import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import type { FontSizeRowInjected } from './FontSizeRow.tsx'
 import { FontSizeRow } from './FontSizeRow.tsx'
-import { createAppearanceRowStore, createFontSizeRowStore } from './settings-store.ts'
+import type { FontSectionInjected } from './FontSection.tsx'
+import { FontSection } from './FontSection.tsx'
+import { createAppearanceRowStore, createFontSectionStore, createFontSizeRowStore } from './settings-store.ts'
 import { installThemeStyles } from './styles.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
 import {
-  DEFAULT_FONT_SIZE, DEFAULT_PREFERENCE, FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN,
-  isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
-  type ThemePreference, type ThemeSettings,
+  CJK_FONT_FIELD, CJK_WEIGHT_FIELD, DEFAULT_CJK_FONT, DEFAULT_CJK_WEIGHT, DEFAULT_FONT_SIZE,
+  DEFAULT_LATIN_FONT, DEFAULT_LATIN_WEIGHT, DEFAULT_PREFERENCE,
+  FONT_SIZE_FIELD, FONT_SIZE_MAX, FONT_SIZE_MIN, cjkLetterSpacing, fontStacks, fontWeightAxes, isCjkFont, isFontWeight, isLatinFont,
+  isThemePreference, LATIN_FONT_FIELD, LATIN_WEIGHT_FIELD, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
+  type CjkFont, type FontStacks, type FontWeightAxes, type LatinFont, type ThemePreference, type ThemeSettings,
 } from '../theme-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
+export type { FontSectionComponentProps, FontSectionInjected } from './FontSection.tsx'
 export type { FontSizeRowComponentProps, FontSizeRowInjected } from './FontSizeRow.tsx'
-export type { AppearanceRowState, FontSizeRowState } from './settings-store.ts'
+export type { AppearanceRowState, FontSectionState, FontSizeRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
-export type { ThemePreference, ThemeSettings } from '../theme-settings.ts'
+export type { FontWeightAxes, ThemePreference, ThemeSettings } from '../theme-settings.ts'
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -82,6 +87,20 @@ export interface ThemeSnapshot {
   preference: ThemePreference
   /** Conversation content font size in px (integer within FONT_SIZE_MIN..FONT_SIZE_MAX). */
   fontSize: number
+  /** Selected Latin/digit font family. */
+  latinFont: LatinFont
+  /** Selected Chinese font family. */
+  cjkFont: CjkFont
+  /** Interface and code font stacks built from the selected families. */
+  fonts: FontStacks
+  /** Rendered weight axes: body follows Chinese, code follows Latin/digits. */
+  fontWeights: FontWeightAxes
+  /** Conversation letter-spacing derived from the Chinese family. */
+  cjkLetterSpacing: string
+  /** Persisted Latin/digit weight (renders for adjustable families, clamped into their window). */
+  latinWeight: number
+  /** Persisted Chinese weight (renders for adjustable families, clamped into their window). */
+  cjkWeight: number
   /**
    * The resolved active theme (`system` resolved via prefers-color-scheme)
    * with override layers folded into its tokens (seq order, later layers win
@@ -161,6 +180,10 @@ export class ThemeRuntime {
   private themes: ThemeDefinition[] = [...BUILTIN_THEMES]
   private preference: ThemePreference
   private fontSize: number = bootstrapFontSize()
+  private latinFont: LatinFont = DEFAULT_LATIN_FONT
+  private cjkFont: CjkFont = DEFAULT_CJK_FONT
+  private latinWeight: number = DEFAULT_LATIN_WEIGHT
+  private cjkWeight: number = DEFAULT_CJK_WEIGHT
   private revision = 0
   private snapshot: ThemeSnapshot
   private readonly media: MediaQueryList | undefined
@@ -254,13 +277,87 @@ export class ThemeRuntime {
     this.publish()
   }
 
+  /**
+   * Switch the Latin/digit font — the only Latin-font write entry.
+   * Accepted values are written through the settings scope and emit
+   * `theme/change`.
+   * @param family - a selectable Latin/digit family; unknown values throw.
+   */
+  setLatinFont(family: string): void {
+    if (!isLatinFont(family)) {
+      throw new Error(`latin font ${family} is not selectable`)
+    }
+    if (this.latinFont === family) return
+    this.latinFont = family
+    void this.host.set(LATIN_FONT_FIELD, family)
+    this.publish()
+  }
+
+  /**
+   * Switch the Chinese font — the only Chinese-font write entry.
+   * Accepted values are written through the settings scope and emit
+   * `theme/change`.
+   * @param family - a selectable Chinese family; unknown values throw.
+   */
+  setCjkFont(family: string): void {
+    if (!isCjkFont(family)) {
+      throw new Error(`cjk font ${family} is not selectable`)
+    }
+    if (this.cjkFont === family) return
+    this.cjkFont = family
+    void this.host.set(CJK_FONT_FIELD, family)
+    this.publish()
+  }
+
+  /**
+   * Change the Latin/digit weight — the only Latin-weight write entry.
+   * Accepted values are written through the settings scope and emit
+   * `theme/change`; fixed-weight families ignore the persisted value.
+   * @param weight - integer weight within 100..900; out-of-range values throw.
+   */
+  setLatinWeight(weight: number): void {
+    if (!isFontWeight(weight)) {
+      throw new Error(`latin weight ${String(weight)} is outside 100..900`)
+    }
+    if (this.latinWeight === weight) return
+    this.latinWeight = weight
+    void this.host.set(LATIN_WEIGHT_FIELD, weight)
+    this.publish()
+  }
+
+  /**
+   * Change the Chinese weight — the only Chinese-weight write entry.
+   * Accepted values are written through the settings scope and emit
+   * `theme/change`; fixed-weight families ignore the persisted value.
+   * @param weight - integer weight within 100..900; out-of-range values throw.
+   */
+  setCjkWeight(weight: number): void {
+    if (!isFontWeight(weight)) {
+      throw new Error(`cjk weight ${String(weight)} is outside 100..900`)
+    }
+    if (this.cjkWeight === weight) return
+    this.cjkWeight = weight
+    void this.host.set(CJK_WEIGHT_FIELD, weight)
+    this.publish()
+  }
+
   /** Adopt the scope's accepted durable preference without writing it back. */
   private adopt(): void {
     const section = this.host.getSnapshot().value
     if (section === undefined) return
-    if (this.preference === section.preference && this.fontSize === section.fontSize) return
+    const latinFont = isLatinFont(section.latinFont) ? section.latinFont : DEFAULT_LATIN_FONT
+    const cjkFont = isCjkFont(section.cjkFont) ? section.cjkFont : DEFAULT_CJK_FONT
+    const latinWeight = isFontWeight(section.latinWeight) ? section.latinWeight : DEFAULT_LATIN_WEIGHT
+    const cjkWeight = isFontWeight(section.cjkWeight) ? section.cjkWeight : DEFAULT_CJK_WEIGHT
+    if (this.preference === section.preference && this.fontSize === section.fontSize
+      && this.latinFont === latinFont && this.cjkFont === cjkFont
+      && this.latinWeight === latinWeight && this.cjkWeight === cjkWeight) return
     this.preference = section.preference
     this.fontSize = section.fontSize
+    this.latinFont = latinFont
+    this.cjkFont = cjkFont
+    this.latinWeight = latinWeight
+    this.cjkWeight = cjkWeight
     this.publish()
   }
 
@@ -328,6 +425,13 @@ export class ThemeRuntime {
     return Object.freeze({
       preference: this.preference,
       fontSize: this.fontSize,
+      latinFont: this.latinFont,
+      cjkFont: this.cjkFont,
+      fonts: fontStacks(this.latinFont, this.cjkFont),
+      latinWeight: this.latinWeight,
+      cjkWeight: this.cjkWeight,
+      fontWeights: fontWeightAxes(this.latinFont, this.latinWeight, this.cjkFont, this.cjkWeight),
+      cjkLetterSpacing: cjkLetterSpacing(this.cjkFont),
       active: this.composeActive(active),
       themes: Object.freeze([...this.themes]),
       revision: this.revision,
@@ -433,13 +537,17 @@ export function apply(ctx: ClientContext): void {
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
 
+  const fontSectionStore = createFontSectionStore()
+  let fontSectionBound: BoundActions<typeof fontSectionStore> | undefined
   const store = createAppearanceRowStore()
   let bound: BoundActions<typeof store> | undefined
   const fontSizeStore = createFontSizeRowStore()
   let fontSizeBound: BoundActions<typeof fontSizeStore> | undefined
+  const t = ctx.locale.bind(SETTINGS_NS)
   const sync = (snapshot: ThemeSnapshot): void => {
     bound?.sync(snapshot.preference, snapshot.revision)
     fontSizeBound?.sync(snapshot.fontSize, snapshot.revision)
+    fontSectionBound?.sync(snapshot.latinFont, snapshot.cjkFont, snapshot.latinWeight, snapshot.cjkWeight, snapshot.revision)
   }
   ctx.on('theme/change', sync)
   const injected = (actions: BoundActions<typeof store>): AppearanceRowInjected => {
@@ -475,4 +583,24 @@ export function apply(ctx: ClientContext): void {
     locale: SETTINGS_NS,
     inject: fontSizeInjected,
   }, FontSizeRow))
+
+  const fontSectionInjected = (actions: BoundActions<typeof fontSectionStore>): FontSectionInjected => {
+    fontSectionBound = actions
+    sync(theme.getTheme())
+    return {
+      setLatinFont: (family) => { theme.setLatinFont(family) },
+      setCjkFont: (family) => { theme.setCjkFont(family) },
+      setLatinWeight: (weight) => { theme.setLatinWeight(weight) },
+      setCjkWeight: (weight) => { theme.setCjkWeight(weight) },
+    }
+  }
+  ctx.slots.inject('settings.section', () => ctx.slots.register({
+    name: 'settings.section',
+    id: 'appearance',
+    order: 5,
+    label: () => t('fontSection.nav'),
+    locale: SETTINGS_NS,
+    store: fontSectionStore,
+    inject: fontSectionInjected,
+  }, FontSection))
 }

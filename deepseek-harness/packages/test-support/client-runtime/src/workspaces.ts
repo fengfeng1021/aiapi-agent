@@ -97,9 +97,9 @@ export class TestWorkspaces implements IWorkspaces {
    * Delete a Workspace (recorded; default no-op).
    * @param workspaceId - target workspace.
    */
-  async delete(workspaceId: WorkspaceId): Promise<void> {
-    this.calls.push({ method: 'delete', args: [workspaceId] })
-    await (this.stubs.get('delete')?.(workspaceId) as Promise<void> | undefined)
+  async delete(workspaceId: WorkspaceId, cascadeSessions?: boolean): Promise<void> {
+    this.calls.push({ method: 'delete', args: [workspaceId, cascadeSessions] })
+    await (this.stubs.get('delete')?.(workspaceId, cascadeSessions) as Promise<void> | undefined)
   }
 
   /**
@@ -140,6 +140,22 @@ export class TestWorkspaces implements IWorkspaces {
     }
     await this.update((draft) => {
       draft.archivedSessionIds = [...draft.archivedSessionIds, sessionId]
+    })
+  }
+
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'deleteSession', args: [sessionId] })
+    const stub = this.stubs.get('deleteSession')
+    if (stub !== undefined) {
+      await (stub(sessionId) as Promise<void>)
+      return
+    }
+    await this.update((draft) => {
+      draft.items = draft.items.map(item => ({
+        ...item,
+        sessionIds: item.sessionIds.filter(id => id !== sessionId),
+      }))
+      draft.archivedSessionIds = draft.archivedSessionIds.filter(id => id !== sessionId)
     })
   }
 }

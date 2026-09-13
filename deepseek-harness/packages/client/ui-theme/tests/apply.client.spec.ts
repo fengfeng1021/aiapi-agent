@@ -8,11 +8,14 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as settingsApply, inject as settingsInject } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
-import type { AppearanceRowInjected, FontSizeRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
+import type {
+  AppearanceRowInjected, FontSectionInjected, FontSizeRowInjected, ThemeRuntime,
+} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
+import { FontSection } from '../src/client/FontSection.tsx'
 import { FontSizeRow } from '../src/client/FontSizeRow.tsx'
-import type { createAppearanceRowStore, createFontSizeRowStore } from '../src/client/settings-store.ts'
+import type { createAppearanceRowStore, createFontSectionStore, createFontSizeRowStore } from '../src/client/settings-store.ts'
 
 // These specs assert the shipped Chinese copy. The lane has no jsdom `window`,
 // so browser-language detection never runs and a fresh LocaleRuntime opens on
@@ -32,7 +35,12 @@ async function bench(isLoopback = true) {
   const locale = new LocaleRuntime(ctx)
   locale.setLocale('zh')
   ctx.provide('locale', locale)
-  const section: Record<string, unknown> = { preference: 'system', fontSize: 14 }
+  const section: Record<string, unknown> = {
+    preference: 'system',
+    fontSize: 14,
+    latinFont: 'Cascadia Mono',
+    cjkFont: 'Microsoft YaHei UI',
+  }
   const namespace = () => ({
     ns: THEME_SETTINGS_NAMESPACE,
     schema: ThemeSettingsSchema.toJSON(),
@@ -74,6 +82,29 @@ function faceOf(slots: SlotRegistry) {
   const handle = entry.store as ReturnType<typeof createAppearanceRowStore>
   const instance = handle.create()
   const face = (entry.inject as unknown as (a: typeof instance.actions) => AppearanceRowInjected)(instance.actions)
+  return { entry, instance, face }
+}
+
+/** Stand in for the settings shell: declare the item and section slots from root. */
+function declareItemsAndSections(slots: SlotRegistry): () => void {
+  return slots.register(
+    {
+      name: 'root',
+      children: {
+        [SLOT]: { kind: 'list', scope: 'root' },
+        'settings.section': { kind: 'list', scope: 'root' },
+      },
+    } as never,
+    () => null,
+  )
+}
+
+/** The same choreography for the font section entry. */
+function fontSectionFaceOf(slots: SlotRegistry) {
+  const entry = slots.entries('settings.section').find(e => e.component === FontSection)!
+  const handle = entry.store as ReturnType<typeof createFontSectionStore>
+  const instance = handle.create()
+  const face = (entry.inject as unknown as (a: typeof instance.actions) => FontSectionInjected)(instance.actions)
   return { entry, instance, face }
 }
 
@@ -153,6 +184,21 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
+  it('routes font-section weight writes back to the service and mirrors them', async () => {
+    const b = await bench()
+    declareItemsAndSections(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeRuntime
+    const { instance, face } = fontSectionFaceOf(b.slots)
+    face.setLatinWeight(700)
+    expect(theme.getTheme().latinWeight).toBe(700)
+    expect(instance.getSnapshot().latinWeight).toBe(700)
+    face.setCjkWeight(600)
+    expect(theme.getTheme().cjkWeight).toBe(600)
+    expect(instance.getSnapshot().cjkWeight).toBe(600)
+    await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
+  })
+
   it('loads Host settings at boot, refreshes its namespace, and keeps remote browsers process-local', async () => {
     const b = await bench()
     // The shared mirror read once at bench time; a Host-side change reaches it
@@ -212,6 +258,40 @@ describe('ui-theme apply', () => {
     const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(2) })
     expect(theme.getTheme().preference).toBe('system')
+  })
+
+  it('registers the font section page with nav copy and projects font snapshots', async () => {
+    const b = await bench()
+    declareItemsAndSections(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = b.slots.entries('settings.section').find(e => e.component === FontSection)!
+    expect(entry.options).toMatchObject({ id: 'appearance', order: 5 })
+    expect(entry.locale).toBe(SETTINGS_NS)
+    const theme = b.ctx.get('theme') as ThemeRuntime
+    theme.setTheme('dark')
+    const { instance, face } = fontSectionFaceOf(b.slots)
+    expect(instance.getSnapshot()).toMatchObject({ latin: 'Cascadia Mono', cjk: 'Microsoft YaHei UI' })
+    expect(face).toBeDefined()
+    expect(b.locale.bind(SETTINGS_NS)('fontSection.nav')).toBe('外观')
+    b.locale.setLocale('en')
+    expect(b.locale.bind(SETTINGS_NS)('fontSection.nav')).toBe('Appearance')
+  })
+
+  it('rejects unknown font families and falls back on invalid Host fonts', async () => {
+    const b = await bench()
+    declareItemsAndSections(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeRuntime
+    expect(() => { theme.setLatinFont('Comic Sans') }).toThrow('not selectable')
+    expect(() => { theme.setCjkFont('Comic Sans') }).toThrow('not selectable')
+    expect(b.mutate).not.toHaveBeenCalled()
+    b.setHostSection({ latinFont: 'Comic Sans', cjkFont: 'Comic Sans' })
+    b.events.emit('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
+    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(2) })
+    expect(theme.getTheme().latinFont).toBe('Cascadia Mono')
+    expect(theme.getTheme().cjkFont).toBe('Microsoft YaHei UI')
+    const { instance } = fontSectionFaceOf(b.slots)
+    expect(instance.getSnapshot()).toMatchObject({ latin: 'Cascadia Mono', cjk: 'Microsoft YaHei UI' })
   })
 
   it('recovers after an HMR collapse of the declaring entry (stale disposer must not block)', async () => {

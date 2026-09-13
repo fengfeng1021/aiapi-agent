@@ -1,6 +1,9 @@
 /** Workspace command implementation and stable Remote failure mapping. */
 
 import type { Context } from '@deepseek-ai/cordis'
+// Type-only: pulls the Host Session owner's Context merge for the close capability.
+import type {} from '@deepseek-ai/dsh-api-session-controller'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { Workspace } from '@deepseek-ai/dsh-workspace'
 import {
   WorkspaceId,
@@ -16,6 +19,8 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
@@ -86,11 +91,19 @@ export class WorkspaceCommands {
 
   /**
    * Delete one Workspace registration without deleting its directory or Sessions.
+   * With `cascadeSessions`, every owned Session is permanently deleted first
+   * (durable logs included), in registry order.
    * @param request - Workspace identity to remove.
    * @returns deletion confirmation.
    */
   delete(request: WorkspaceDeleteRequest): Promise<WorkspaceDeleteValue> {
     return this.enqueue(async () => {
+      if (request.cascadeSessions === true) {
+        const workspace = this.requireWorkspace(request.workspaceId)
+        for (const sessionId of [...workspace.sessionIds]) {
+          await this.deleteSessionCore(sessionId)
+        }
+      }
       if (!await this.ctx.workspaceRegistry.delete(WorkspaceId(request.workspaceId))) {
         throw workspaceNotFound(request.workspaceId)
       }
@@ -158,6 +171,43 @@ export class WorkspaceCommands {
       throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Permanently delete one Session: registry accounting first, then the
+   * durable log. A live (attached) Session is closed through the Session
+   * owner — cancelling any in-flight turn — before deletion; a Session live
+   * under another owner has no closer and stays a loud `session/live`.
+   * @param request - Session identity to delete.
+   * @returns deletion confirmation.
+   */
+  async deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    await this.deleteSessionCore(request.sessionId)
+    return { deleted: true }
+  }
+
+  private async deleteSessionCore(sessionId: SessionId): Promise<void> {
+    if (this.ctx.get('sessions')?.get(sessionId) !== undefined) {
+      // An open log must be closed before deletion, otherwise its next append
+      // would resurrect the file. The Session owner closes the exact Agent it
+      // created; a Session live under another owner (subagent routing, another
+      // host API) keeps the explicit rejection instead.
+      await this.ctx.get('sessionController')?.closeSession(sessionId)
+      if (this.ctx.get('sessions')?.get(sessionId) !== undefined) {
+        throw new RemoteError(
+          'session/live',
+          `cannot delete session "${sessionId}" while it is open; close it first`,
+          { sessionId },
+        )
+      }
+    }
+    await this.ctx.workspaceRegistry.deleteSession(sessionId)
+    try {
+      await this.ctx.workspaceRegistry.sessionPersistence.delete(sessionId)
+    } catch (error) {
+      if (!(error instanceof Error) || !/while it is open/.test(error.message)) throw error
+      throw new RemoteError('session/live', error.message, { sessionId }, { cause: error })
+    }
   }
 
   private requireWorkspace(workspaceId: WorkspaceId): Workspace {

@@ -249,6 +249,16 @@
     },
     {
       "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleNotifyPolicy",
+      "source": "packages/schedule/schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleMetadata",
+      "source": "packages/schedule/schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
       "symbol": "LocalAtInput",
       "source": "packages/schedule/schedule/src/types.ts"
     },
@@ -310,6 +320,16 @@
     {
       "doc": "docs/subsystems/schedule.md",
       "symbol": "ScheduleView",
+      "source": "packages/schedule/schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ScheduleActiveStatus",
+      "source": "packages/schedule/schedule/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/schedule.md",
+      "symbol": "ResolvedScheduleMetadata",
       "source": "packages/schedule/schedule/src/types.ts"
     },
     {

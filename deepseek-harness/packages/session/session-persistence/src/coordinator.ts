@@ -666,6 +666,19 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     })
   }
 
+  /**
+   * Drop all coordinator bookkeeping for one session id: prepared-view cache
+   * entries and per-id write state. Called by backend `delete` implementations
+   * after the durable artifact is gone. The caller must guarantee no live
+   * Session and no in-flight writer holds the id; evicting under an active
+   * writer only drops bookkeeping while its next append recreates the log.
+   * @param id - evicted session identity.
+   */
+  evict(id: SessionId): void {
+    this.preparations.invalidate(id)
+    this.states.delete(id)
+  }
+
   private async createCore(meta: SessionHeader): Promise<void> {
     // Do NOT clobber an existing session: the SessionId IS the identity.
     if (this.states.has(meta.id) || this.preparations.has(meta.id)) {

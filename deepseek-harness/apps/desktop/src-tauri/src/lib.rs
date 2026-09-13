@@ -594,6 +594,11 @@ pub fn run() {
             let _ = window.show();
             let _ = window.set_focus();
         }))
+        // Dropped images arrive as bare OS paths (the page can never read
+        // them back); the composer bridge pulls their bytes through here.
+        // Gated by the fs capability. Dropped folders and documents stay as
+        // @-path references for the agent to open itself.
+        .plugin(tauri_plugin_fs::init())
         .manage(Arc::clone(&process))
         .manage(Arc::clone(&allowed_port))
         .setup(move |app| {

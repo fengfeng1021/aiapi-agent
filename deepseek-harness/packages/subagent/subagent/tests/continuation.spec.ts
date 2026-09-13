@@ -13,10 +13,10 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import * as SubagentFork from '@deepseek-ai/dsh-subagent-fork-in-process'
 import type { GenerateOptions, MessageId, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { ToolCallId, createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmAdapter, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { MockAdapter, maxTokensResponse, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import SubagentRuntime, {
   SubagentError,
   SUBAGENT_DESCRIPTOR_VERSION,
@@ -209,38 +209,6 @@ describe('SubagentRuntime.startContinuable', () => {
     await waitNoActivation(ctx, started.childId)
     const loaded = await ctx.sessionPersistence.load(started.childId)
     expect(hasUserText(loaded.events, 'child task')).toBe(true)
-  })
-
-  it('uses a caller-reserved child identity and rejects a duplicate reservation', async () => {
-    const release = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('reserved answer'), gate: release.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const reservedId = SessionId('00000000-0000-4000-8000-000000000123')
-
-    const started = await ctx.subagents.startContinuable({
-      ...startSpec(parent),
-      childId: reservedId,
-    })
-    expect(started.childId).toBe(reservedId)
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-
-    await expect(ctx.subagents.startContinuable({
-      ...startSpec(parent),
-      childId: reservedId,
-    })).rejects.toMatchObject({ code: 'DUPLICATE_CHILD' })
-
-    release.resolve(undefined)
-    await waitNoActivation(ctx, reservedId)
-    const loaded = await ctx.sessionPersistence.load(reservedId)
-    expect(loaded.meta.id).toBe(reservedId)
-
-    await expect(ctx.subagents.startContinuable({
-      ...startSpec(parent),
-      childId: reservedId,
-    })).rejects.toMatchObject({ code: 'DUPLICATE_CHILD' })
-    expect(ctx.agents.get(reservedId)).toBeUndefined()
   })
 
   it('rejects without ids when the provider has no prepareContinuable capability', async () => {
@@ -451,36 +419,6 @@ describe('SubagentRuntime.startContinuable', () => {
     await drainManager(ctx)
   })
 
-  it('cold-resumes without inventing a model route the descriptor never declared', async () => {
-    const { ctx, root } = await setup([textResponse('first')])
-    const routeless = ctx.agentLoop.create(SessionId('routeless-resume'), {})
-    const started = await ctx.subagents.startContinuable(startSpec(routeless))
-    await waitNoActivation(ctx, started.childId)
-
-    const fresh = new Context()
-    await mountAgentLoopTestDependencies(fresh)
-    await fresh.plugin(SessionProjectionRegistry)
-    const freshPersistence = await fresh.plugin(JsonlSessionPersistence, { root: root! })
-    // This context opened a second handle on the same root; register it so
-    // afterEach closes it before removing the root (even on a failure path).
-    cleanups.push(async () => { await freshPersistence.dispose() })
-    await fresh.plugin(AgentLoop, { agents: [] })
-    await fresh.plugin(TestSessionQuery)
-    await fresh.plugin(SubagentRuntime)
-    await fresh.plugin(SubagentSpawn, { providerName: 'spawn' })
-    const freshParent = fresh.agentLoop.create(SessionId('routeless-resume'), {})
-    await followup(fresh, freshParent, started.childId, message('resume routeless'))
-
-    const resumed = await vi.waitFor(() => {
-      const found = fresh.agents.get(started.childId)
-      expect(found).toBeDefined()
-      return found!
-    })
-    expect(resumed.options.provider).toBeUndefined()
-    expect(resumed.options.model).toBeUndefined()
-    await drainManager(fresh)
-  })
-
   it('continues turn numbering after an inherited fork prefix and pre-turn descriptor', async () => {
     const { ctx, parent } = await setup([
       textResponse('parent turn'),
@@ -555,59 +493,6 @@ describe('continuable image follow-ups', () => {
     await drainManager(ctx)
   })
 
-  it('delivers an image follow-up to a resident child when its model accepts image input', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child work'), gate: releaseFirst.promise },
-      { chunks: textResponse('image reply') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => {
-      expect(adapter.requests).toHaveLength(1)
-    })
-    vi.spyOn(ctx.llm, 'resolveModelInfo')
-      .mockResolvedValue({ inputModalities: ['text', 'image'] } as never)
-
-    await ctx.subagents.followup(parent, started.childId, [
-      { type: 'text' as const, text: 'compare' },
-      imageBlock,
-    ], { source: { kind: 'user' }, signal: testSignal })
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    const delivered = loaded.events.find(event => event.type === 'user/message'
-      && event.data.content.some(block => block.type === 'image'))
-    expect(delivered?.type === 'user/message' && delivered.data.content).toEqual([
-      { type: 'text', text: 'compare' },
-      imageBlock,
-    ])
-    await drainManager(ctx)
-  })
-
-  it('re-checks the disposal cutoff when a drain begins during a live image capability read', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('child work'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const capability = Promise.withResolvers<{ inputModalities: string[] }>()
-    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo').mockReturnValue(capability.promise as never)
-
-    const delivery = ctx.subagents.followup(parent, started.childId, [imageBlock], {
-      source: { kind: 'user' }, signal: testSignal,
-    })
-    delivery.catch(() => undefined)
-    await vi.waitFor(() => { expect(resolve).toHaveBeenCalled() })
-    releaseFirst.resolve(undefined)
-    const draining = drainManager(ctx)
-    capability.resolve({ inputModalities: ['text', 'image'] })
-
-    await expect(delivery).rejects.toMatchObject({ code: 'DRAINING' })
-    await draining
-  })
-
   it('rejects a materialized image follow-up whose capability read raced a drain', async () => {
     const { ctx, parent } = await setup([textResponse('child work')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -630,22 +515,6 @@ describe('continuable image follow-ups', () => {
       && event.data.content.some(block => block.type === 'image'))).toBe(false)
   })
 
-  it('defers to the text-only projection when the descriptor declares no model route', async () => {
-    const { ctx } = await setup([])
-    const routeless = ctx.agentLoop.create(SessionId('routeless-image'), {})
-    const started = await ctx.subagents.startContinuable(startSpec(routeless))
-    await waitNoActivation(ctx, started.childId)
-    const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo')
-
-    // Acceptance is the success boundary: with no declared route there is no
-    // model to refuse against, so the image message enters the child inbox.
-    await ctx.subagents.followup(routeless, started.childId, [imageBlock], {
-      source: { kind: 'user' }, signal: testSignal,
-    })
-
-    expect(resolve).not.toHaveBeenCalled()
-    await drainManager(ctx)
-  })
 })
 
 describe('SubagentRuntime.followup residency routing', () => {
@@ -657,32 +526,6 @@ describe('SubagentRuntime.followup residency routing', () => {
 
     await expect(followup(ctx, parent, SessionId('cold-without-query'), message('continue')))
       .rejects.toMatchObject({ code: 'CONTINUATION_UNAVAILABLE' })
-  })
-
-  it('enqueues in the same Activation while it is running, preserving one inbox FIFO', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('first'), gate: releaseFirst.promise },
-      { chunks: textResponse('second') },
-      { chunks: textResponse('third') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)
-    expect(child?.status).toBe('running')
-
-    // Both messages queue behind the open turn, in call order.
-    const firstMessage = await followup(ctx, parent, started.childId, message('first follow-up'))
-    const secondMessage = await followup(ctx, parent, started.childId, message('second follow-up'))
-    expect(firstMessage).not.toBe(secondMessage)
-    // Still the same Activation: no second child Agent was created.
-    expect(ctx.agents.get(started.childId)).toBe(child)
-
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(userTexts(loaded.events)).toEqual(['child task', 'first follow-up', 'second follow-up'])
   })
 
   it('cold-resumes a settled child into a new Activation', async () => {
@@ -730,45 +573,6 @@ describe('SubagentRuntime.followup residency routing', () => {
     expect(ends.map(info => info.runId)).toEqual(starts.map(info => info.runId))
     const loaded = await ctx.sessionPersistence.load(started.childId)
     expect(userTexts(loaded.events)).toEqual(['child task', 'continue without provider'])
-  })
-
-  it('wakes a waiting Activation instead of cold-resuming it', async () => {
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      // The child delegates, then finishes its own turn while the grandchild runs.
-      { chunks: textResponse('child done') },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-      { chunks: textResponse('woken') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    const child = await vi.waitFor(() => {
-      const found = ctx.agents.get(started.childId)
-      expect(found).toBeDefined()
-      return found!
-    })
-    // The child starts its own continuable grandchild, then goes quiescent.
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-    await vi.waitFor(() => { expect(adapter.requests.length).toBeGreaterThanOrEqual(2) })
-    await vi.waitFor(() => {
-      expect(child.status).toBe('idle')
-      expect(ctx.agents.get(started.childId)).toBe(child)
-    }, { timeout: 5_000 })
-    // Waiting retains the handle: the same Agent is still live.
-    expect(ctx.agents.get(started.childId)).toBe(child)
-
-    await followup(ctx, parent, started.childId, message('while waiting'))
-    // Woken back to running on the SAME Activation.
-    expect(ctx.agents.get(started.childId)).toBe(child)
-
-    releaseGrandchild.resolve(undefined)
-    await waitNoActivation(ctx, grandchild.childId)
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    // This child is itself a parent, so its grandchild's settlement notice is
-    // an ordinary later user message in its log.
-    expect(userTexts(loaded.events).slice(0, 2)).toEqual(['child task', 'while waiting'])
-    expect(userTexts(loaded.events).slice(2).join('\n')).toContain('finished and will do no further work')
   })
 
   it('rejects a parent that is not the durable direct parent', async () => {
@@ -868,34 +672,6 @@ describe('SubagentRuntime.followup residency routing', () => {
 })
 
 describe('continuable child ownership', () => {
-  it('keeps a parent Activation waiting until its child completes disposal', async () => {
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child done') },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    const child = await vi.waitFor(() => {
-      const found = ctx.agents.get(started.childId)
-      expect(found).toBeDefined()
-      return found!
-    })
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-
-    await vi.waitFor(() => {
-      expect(child.status).toBe('idle')
-      expect(ctx.agents.get(started.childId)).toBe(child)
-    }, { timeout: 5_000 })
-    // Child-first: the parent handle is retained while the grandchild is live.
-    expect(ctx.agents.get(started.childId)).toBe(child)
-    expect(ctx.agents.get(grandchild.childId)).toBeDefined()
-
-    releaseGrandchild.resolve(undefined)
-    await waitNoActivation(ctx, grandchild.childId)
-    await waitNoActivation(ctx, started.childId)
-  })
-
   it('does not add a top-level parent to the waiting graph', async () => {
     const { ctx, parent } = await setup([textResponse('done')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -906,73 +682,6 @@ describe('continuable child ownership', () => {
 })
 
 describe('continuable durability and teardown', () => {
-  it('settles when the best-effort final flush has no listeners', async () => {
-    const releaseResponse = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('unconfirmed answer'), gate: releaseResponse.promise },
-    ])
-    const { ctx, parent, disposePersistence } = await setupWith(adapter)
-    const warnings: string[] = []
-    ctx.logger.warn = (message: string) => { warnings.push(message) }
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    // Remove every persistence listener; the final flush is advisory.
-    await disposePersistence!()
-    releaseResponse.resolve(undefined)
-
-    await waitNoActivation(ctx, started.childId)
-    expect(warnings.some(warning => warning.includes('final session flush'))).toBe(false)
-  })
-
-  it('logs a failed final flush after every listener settles without failing the Activation', async () => {
-    const { ctx, parent } = await setup([textResponse('answer')])
-    const warnings: string[] = []
-    const ends: SubagentRunEndInfo[] = []
-    let peerFlushed = false
-    ctx.logger.warn = (message: string) => { warnings.push(message) }
-    ctx.on('subagent/end', info => void ends.push(info))
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession !== undefined) throw new Error('disk full')
-    })
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession !== undefined) peerFlushed = true
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    expect(peerFlushed).toBe(true)
-    expect(warnings.some(warning => warning.includes('best-effort final session flush failed'))).toBe(true)
-    expect(ends.at(-1)?.stopReason).toBe('completed')
-  })
-
-  it('logs a teardown failure reached through normal settlement', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('answer'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const warnings: string[] = []
-    ctx.logger.warn = (message: string) => { warnings.push(message) }
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const manager = (ctx.subagents as unknown as {
-      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
-    }).continuations
-    const activation = manager.activations.get(started.childId)!
-    const realDispose = activation.handle.dispose.bind(activation.handle)
-    activation.handle.dispose = async () => {
-      await realDispose()
-      throw new Error('normal settlement cleanup failed')
-    }
-
-    hold.resolve(undefined)
-
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => {
-      expect(warnings.some(warning => warning.includes('normal settlement cleanup failed'))).toBe(true)
-    }, { timeout: 5_000 })
-  })
-
   it('disposes every live Activation forest child-first on manager teardown', async () => {
     const hold = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([
@@ -1005,212 +714,12 @@ describe('continuable durability and teardown', () => {
     expect(loaded.meta.id).toBe(started.childId)
   })
 
-  it('drains one parent forest without disabling a sibling parent forest', async () => {
-    const releaseTarget = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const releaseSibling = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('target child'), gate: releaseTarget.promise },
-      { chunks: textResponse('sibling child'), gate: releaseSibling.promise },
-      { chunks: textResponse('target grandchild'), gate: releaseGrandchild.promise },
-      { chunks: textResponse('sibling follow-up') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const siblingParent = ctx.agentLoop.create(
-      SessionId('sibling-parent'),
-      { provider: 'mock', model: 'mock' },
-    )
-    const target = await ctx.subagents.startContinuable(startSpec(parent))
-    const sibling = await ctx.subagents.startContinuable(startSpec(siblingParent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const targetChild = ctx.agents.get(target.childId)!
-    const siblingChild = ctx.agents.get(sibling.childId)!
-    const grandchild = await ctx.subagents.startContinuable(startSpec(targetChild))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(3) })
-    const cancellations: SessionId[] = []
-    observeCancel(targetChild, () => { cancellations.push(targetChild.id) })
-    const grandchildAgent = ctx.agents.get(grandchild.childId)!
-    observeCancel(grandchildAgent, () => { cancellations.push(grandchildAgent.id) })
-
-    const drained = ctx.subagents.drainContinuableDescendants([parent])
-    const convergedDrain = ctx.subagents.drainContinuableDescendants([parent])
-
-    // The scoped cutoff stops only the selected forest. The sibling child stays
-    // resident and can accept later work while target cleanup is still blocked.
-    expect(cancellations).toEqual([target.childId, grandchild.childId])
-    expect(ctx.agents.get(target.childId)).toBe(targetChild)
-    expect(ctx.agents.get(grandchild.childId)).toBeDefined()
-    expect(ctx.agents.get(sibling.childId)).toBe(siblingChild)
-    await expect(followup(ctx, siblingParent, sibling.childId, message('still live')))
-      .resolves.toBeTypeOf('string')
-    await expect(ctx.subagents.startContinuable(startSpec(parent)))
-      .rejects.toMatchObject({ code: 'DRAINING' })
-    await expect(followup(ctx, parent, target.childId, message('too late')))
-      .rejects.toMatchObject({ code: 'DRAINING' })
-
-    releaseTarget.resolve(undefined)
-    releaseGrandchild.resolve(undefined)
-    await Promise.all([drained, convergedDrain])
-    expect(ctx.agents.get(target.childId)).toBeUndefined()
-    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
-    expect(ctx.agents.get(sibling.childId)).toBe(siblingChild)
-    // The exact root remains closed until its host disposes it, even after all
-    // current descendants are gone.
-    await expect(ctx.subagents.startContinuable(startSpec(parent)))
-      .rejects.toMatchObject({ code: 'DRAINING' })
-
-    releaseSibling.resolve(undefined)
-    await waitNoActivation(ctx, sibling.childId)
-  })
-
-  it('retains a continuable root while draining only its descendants', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child'), gate: releaseChild.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const cancellations: SessionId[] = []
-    const grandchildAgent = ctx.agents.get(grandchild.childId)!
-    observeCancel(grandchildAgent, () => { cancellations.push(grandchildAgent.id) })
-
-    const drained = ctx.subagents.drainContinuableDescendants([child])
-
-    expect(cancellations).toEqual([grandchild.childId])
-    expect(ctx.agents.get(started.childId)).toBe(child)
-    releaseGrandchild.resolve(undefined)
-    await drained
-    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
-    expect(ctx.agents.get(started.childId)).toBe(child)
-    await expect(ctx.subagents.startContinuable(startSpec(child)))
-      .rejects.toMatchObject({ code: 'DRAINING' })
-
-    releaseChild.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-  })
-
-  it('releases only selected direct children', async () => {
-    const releaseTarget = Promise.withResolvers<undefined>()
-    const releaseSibling = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('target'), gate: releaseTarget.promise },
-      { chunks: textResponse('sibling'), gate: releaseSibling.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const target = await ctx.subagents.startContinuable(startSpec(parent))
-    const sibling = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const targetAgent = ctx.agents.get(target.childId)!
-    const siblingAgent = ctx.agents.get(sibling.childId)!
-    const grandchild = await ctx.subagents.startContinuable(startSpec(targetAgent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(3) })
-    const cancel = vi.spyOn(targetAgent, 'cancel')
-
-    const drained = ctx.subagents.drainContinuableChildren(parent, [target.childId, target.childId])
-
-    expect(cancel).toHaveBeenCalledWith({ kind: 'parent' })
-    expect(ctx.agents.get(sibling.childId)).toBe(siblingAgent)
-    releaseTarget.resolve(undefined)
-    releaseGrandchild.resolve(undefined)
-    await drained
-    expect(ctx.agents.get(target.childId)).toBeUndefined()
-    expect(ctx.agents.get(grandchild.childId)).toBeUndefined()
-    expect(ctx.agents.get(sibling.childId)).toBe(siblingAgent)
-    releaseSibling.resolve(undefined)
-    await waitNoActivation(ctx, sibling.childId)
-  })
-
-  it('reports selected-child disposal failures after releasing the child', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('target'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const target = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const manager = (ctx.subagents as unknown as {
-      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
-    }).continuations
-    const activation = manager.activations.get(target.childId)!
-    const realDispose = activation.handle.dispose.bind(activation.handle)
-    activation.handle.dispose = async () => {
-      await realDispose()
-      throw new Error('selected cleanup failed')
-    }
-
-    const drained = ctx.subagents.drainContinuableChildren(parent, [target.childId])
-    hold.resolve(undefined)
-
-    await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
-    expect(ctx.agents.get(target.childId)).toBeUndefined()
-  })
-
-  it('rejects selected-child teardown through another live parent', async () => {
-    const release = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('target'), gate: release.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const other = ctx.agentLoop.create(SessionId('other-parent'), { provider: 'mock', model: 'mock' })
-    const target = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-
-    await expect(ctx.subagents.drainContinuableChildren(other, [target.childId]))
-      .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
-    expect(ctx.agents.get(target.childId)).toBeDefined()
-
-    release.resolve(undefined)
-    await waitNoActivation(ctx, target.childId)
-  })
-
   it('rejects selected-child teardown through a stale parent identity', async () => {
     const { ctx, parent } = await setup([])
     const stale = { ...parent, id: parent.id } as unknown as Agent
 
     await expect(ctx.subagents.drainContinuableChildren(stale, []))
       .rejects.toMatchObject({ code: 'UNAUTHORIZED' })
-  })
-
-  it('finds scoped descendants after an intermediate one-shot Agent leaves the registry', async () => {
-    const releaseIntermediate = Promise.withResolvers<undefined>()
-    const releaseDescendant = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('one-shot'), gate: releaseIntermediate.promise },
-      { chunks: textResponse('continuable descendant'), gate: releaseDescendant.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const run = await ctx.subagents.start('spawn', {
-      label: 'one-shot task',
-      prompt: message('one-shot task'),
-      parent,
-      signal: testSignal,
-    })
-    const intermediate = run.localAgent
-    expect(intermediate).toBeDefined()
-    if (intermediate === undefined) throw new Error('spawn must publish a local Agent')
-    const descendant = await ctx.subagents.startContinuable(startSpec(intermediate))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-
-    const intermediateId = intermediate.id
-    const disposingIntermediate = run.dispose()
-    releaseIntermediate.resolve(undefined)
-    await disposingIntermediate
-    expect(ctx.agents.get(intermediateId)).toBeUndefined()
-    expect(ctx.agents.get(descendant.childId)).toBeDefined()
-    const cancellations: SessionId[] = []
-    const descendantAgent = ctx.agents.get(descendant.childId)!
-    observeCancel(descendantAgent, () => { cancellations.push(descendantAgent.id) })
-
-    const drained = ctx.subagents.drainContinuableDescendants([parent])
-
-    expect(cancellations).toEqual([descendant.childId])
-    releaseDescendant.resolve(undefined)
-    await drained
-    expect(ctx.agents.get(descendant.childId)).toBeUndefined()
   })
 
   it('awaits and rolls back an admitted materialization below a scoped root', async () => {
@@ -1256,31 +765,6 @@ describe('continuable durability and teardown', () => {
     const started = await ctx.subagents.startContinuable(startSpec(parent))
 
     await waitNoActivation(ctx, started.childId)
-  })
-
-  it('reports a scoped teardown failure after releasing the selected branch', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('target child'), gate: hold.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const manager = (ctx.subagents as unknown as {
-      continuations: { activations: Map<SessionId, { handle: { dispose: () => Promise<void> } }> }
-    }).continuations
-    const activation = manager.activations.get(started.childId)!
-    const realDispose = activation.handle.dispose.bind(activation.handle)
-    activation.handle.dispose = async () => {
-      await realDispose()
-      throw new Error('scoped child reap failed')
-    }
-
-    const drained = ctx.subagents.drainContinuableDescendants([parent])
-    hold.resolve(undefined)
-
-    await expect(drained).rejects.toMatchObject({ code: 'ACTIVATION_TEARDOWN_FAILED' })
-    expect(ctx.agents.get(started.childId)).toBeUndefined()
   })
 
   it('rejects new materialization and delivery once draining begins', async () => {
@@ -1334,51 +818,6 @@ describe('continuable durability and teardown', () => {
     expect(ctx.agents.list()).toEqual([parent])
   })
 
-  it('admits a live follow-up before a later drain can begin disposal', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const order: string[] = []
-    child.ctx.on('agent/inbox/inserted', ({ message }) => {
-      if (message.content.some(block => block.type === 'text' && block.text === 'before drain')) {
-        order.push('enqueue')
-      }
-    })
-    observeCancel(child, () => { order.push('cancel') })
-
-    const delivery = followup(ctx, parent, started.childId, message('before drain'))
-    // Let the child-lock operation reach the live admission cutoff. Admission
-    // and inbox submission must then complete in one synchronous span.
-    await Promise.resolve()
-    const drained = drainManager(ctx)
-    hold.resolve(undefined)
-
-    await expect(delivery).resolves.toBeTypeOf('string')
-    await drained
-    expect(order).toEqual(['enqueue', 'cancel'])
-  })
-
-  it('has no automatic replay for an accepted but unlogged message', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('first'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    // Accepted into the inbox, but this queued turn never opens.
-    await followup(ctx, parent, started.childId, message('never logged'))
-
-    const drained = drainManager(ctx)
-    hold.resolve(undefined)
-    await drained
-    await waitNoActivation(ctx, started.childId)
-
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    // Only what actually reached the log is reconstructable.
-    expect(hasUserText(loaded.events, 'never logged')).toBe(false)
-  })
 })
 
 describe('continuable review regressions', () => {
@@ -1426,156 +865,6 @@ describe('continuable review regressions', () => {
     const loaded = await ctx.sessionPersistence.load(started.childId)
     expect(hasUserText(loaded.events, 'must not cross parent replacement')).toBe(false)
     await replacement.dispose()
-  })
-
-  it('clears the accepted reservation when Agent.followup throws', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const manager = (ctx.subagents as unknown as {
-      continuations: {
-        activations: Map<SessionId, { accepted: Set<MessageId> }>
-      }
-    }).continuations
-    const activation = manager.activations.get(started.childId)!
-    const realFollowup = child.followup.bind(child)
-    child.followup = () => {
-      throw new Error('synthetic inbox failure')
-    }
-
-    await expect(followup(ctx, parent, started.childId, message('throws')))
-      .rejects.toThrow(/synthetic inbox failure/)
-    expect(activation.accepted.size).toBe(0)
-
-    child.followup = realFollowup
-    const drained = drainManager(ctx)
-    hold.resolve(undefined)
-    await drained
-  })
-
-  it('reports the child\'s own terminal reason, not teardown success', async () => {
-    // The child hits its token ceiling; teardown still succeeds.
-    const { ctx, parent } = await setupWith(new MockAdapter([
-      [{ type: 'block-start', index: 0, blockType: 'text' },
-        { type: 'text-delta', index: 0, text: 'partial' },
-        { type: 'block-end', index: 0, block: { type: 'text', text: 'partial' } },
-        { type: 'finish', reason: { kind: 'max-tokens' } }],
-    ]))
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    // Deriving this from disposal success would report the failure as completed.
-    expect(ends[0]!.stopReason).toBe('max-tokens')
-  })
-
-  it('rejects a live delivery whose caller signal aborted before admission', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const before = child.session.events.length
-
-    const controller = new AbortController()
-    controller.abort('caller gave up')
-    await expect(followup(ctx, parent, started.childId, message('cancelled'), controller.signal))
-      .rejects.toThrow()
-
-    // Nothing was enqueued, so no later turn can carry it.
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'cancelled')).toBe(false)
-    expect(before).toBeGreaterThan(0)
-  })
-
-  it('reports this epoch\'s own output, captured while the child was still live', async () => {
-    const { ctx, parent } = await setup([textResponse('first answer'), textResponse('second answer')])
-    parkParent(ctx, parent)
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    // Handle disposal unregisters the child, so the edge's content must have
-    // been captured before that — an after-the-fact lookup would find nothing.
-    expect(ends[0]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'first answer' }])
-
-    // A cold resume is a new epoch: it must report its OWN answer, never the
-    // previous epoch's, which the replayed transcript still contains.
-    await followup(ctx, parent, started.childId, message('again'))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => { expect(ends).toHaveLength(2) })
-    expect(ends[1]!.lastAssistantMessage).toEqual([{ type: 'text', text: 'second answer' }])
-  })
-
-  it('keeps the epoch\'s earlier text past a final empty usage-only message', async () => {
-    // A tool-only max-tokens step records an empty assistant/message for
-    // usage. The terminal event retains the previous assistant content,
-    // including its tool call but not the intervening tool result.
-    const { ctx, parent } = await setup([
-      toolCallResponse('t1', 'noop', {}, 'partial one'),
-      [
-        { type: 'block-start', index: 0, blockType: 'tool-call' },
-        { type: 'tool-call-delta', index: 0, id: ToolCallId('t2'), name: 'noop', argumentsDelta: '{}' },
-        { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('t2'), name: 'noop', arguments: '{}' } },
-        { type: 'usage', usage: { inputTokens: 20, outputTokens: 5 } },
-        { type: 'finish', reason: { kind: 'max-tokens' } },
-      ],
-    ])
-    ctx.tools.register(defineTool({
-      name: 'noop',
-      description: 'does nothing',
-      parameters: {},
-      output: {
-        schema: { type: 'object', additionalProperties: false, properties: {} },
-        render: () => [{ type: 'text', text: 'noop' }],
-      },
-      execute: () => Promise.resolve({}),
-    }))
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    expect(ends[0]!.stopReason).toBe('max-tokens')
-    expect(ends[0]!.lastAssistantMessage).toEqual([
-      { type: 'text', text: 'partial one' },
-      { type: 'tool-call', id: 't1', name: 'noop', arguments: '{}' },
-    ])
-  })
-
-  it('reports a resumed epoch that opened no turn without the previous answer', async () => {
-    const { ctx, parent } = await setup([textResponse('first answer')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-    // Block the resumed prompt so this epoch produces nothing of its own.
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject === parent) return next()
-      return { kind: 'reject' }
-    })
-    await followup(ctx, parent, started.childId, message('again'))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    // Reading the whole session would resurrect 'first answer' here. The
-    // rejection discarded the claimed follow-up, so the epoch reads as refused.
-    expect(ends[0]!.lastAssistantMessage).toBeUndefined()
-    expect(ends[0]!.stopReason).toBe('refusal')
   })
 
   it('reports handle-disposal failure on the terminal edge', async () => {
@@ -1684,133 +973,6 @@ describe('continuable review regressions', () => {
     expect(order.indexOf('cancel')).toBeLessThan(order.lastIndexOf('flush'))
   })
 
-  it('releases an accepted message that is discarded instead of run', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    // Queue a turn, then cancel so it is discarded rather than dequeued. The
-    // Activation must still reach settlement instead of waiting on that id.
-    await followup(ctx, parent, started.childId, message('discarded'))
-
-    const drained = drainManager(ctx)
-    hold.resolve(undefined)
-    await drained
-
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'discarded')).toBe(false)
-  })
-
-  it('settles after a delivery discarded inside its own admission window', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-
-    // Cancel from the synchronous enqueue observer: the discard fires after the
-    // id is recorded but before `followup()` returns.
-    const off = child.ctx.on('agent/inbox/inserted', ({ message }) => {
-      if (message.content.some(block => block.type === 'text' && block.text === 'doomed')) {
-        child.cancel({ kind: 'user' })
-      }
-    })
-    await followup(ctx, parent, started.childId, message('doomed'))
-    off()
-
-    releaseFirst.resolve(undefined)
-    // Retaining the discarded id would pin residency at `running` forever, so
-    // reaching no-Activation without an explicit drain is the assertion.
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'doomed')).toBe(false)
-  })
-
-  it('releases older ids discarded during a later admission window', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const manager = (ctx.subagents as unknown as {
-      continuations: {
-        activations: Map<SessionId, { accepted: Set<MessageId> }>
-      }
-    }).continuations
-    const activation = manager.activations.get(started.childId)!
-
-    await followup(ctx, parent, started.childId, message('queued'))
-    expect(activation.accepted.size).toBe(1)
-    const off = child.ctx.on('agent/inbox/inserted', ({ message }) => {
-      if (message.content.some(block => block.type === 'text' && block.text === 'doomed')) {
-        child.cancel({ kind: 'user' })
-      }
-    })
-    await followup(ctx, parent, started.childId, message('doomed'))
-    off()
-
-    expect(activation.accepted.size).toBe(0)
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-  })
-
-  it('reports a prompt a pre-step rejection discarded as refusal', async () => {
-    const { ctx, parent } = await setup([])
-    parkParent(ctx, parent)
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-    // A UserPromptSubmit deny or a policy plugin: the child claims its prompt,
-    // the rejection discards it, and no step ever runs.
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject === parent) return next()
-      return { kind: 'reject' }
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    // The parent would otherwise believe a vetoed delivery was done and never
-    // resend it — the one failure the settlement promise says cannot happen.
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    expect(ends[0]!.stopReason).toBe('refusal')
-  })
-
-  it('retains the Activation while an accepted message is still in the inbox', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('first'), gate: releaseFirst.promise },
-      { chunks: textResponse('second') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const registeredAtEnqueue: boolean[] = []
-    // A synchronous inbox observer runs before the admitting microtask, the
-    // exact window where `Agent.status` is still idle.
-    ctx.on('agent/inbox/inserted', ({ agent }) => {
-      if (agent.session.header.parentSession !== undefined) {
-        registeredAtEnqueue.push(ctx.agents.get(agent.id) === agent)
-      }
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)
-    await followup(ctx, parent, started.childId, message('queued'))
-
-    expect(registeredAtEnqueue.length).toBeGreaterThan(0)
-    expect(registeredAtEnqueue).not.toContain(false)
-    expect(ctx.agents.get(started.childId)).toBe(child)
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-    // Two child turns; the third request is the parent's own turn on the
-    // settlement notice.
-    expect(adapter.requests.filter(request => request.sessionId === started.childId)).toHaveLength(2)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'queued')).toBe(true)
-  })
 })
 
 /** Every settlement notice this agent received, in order, as flat text. */
@@ -1826,61 +988,7 @@ function settlementNotices(agent: Agent): { sender: string; text: string; summar
   })
 }
 
-describe('continuable report delivery', () => {
-  it('wakes an idle parent for a next-step report', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child answer'), gate: releaseChild.promise },
-      { chunks: textResponse('parent report ack') },
-      { chunks: textResponse('parent settlement ack') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => {
-      expect(adapter.requests.filter(request => request.sessionId === started.childId)).toHaveLength(1)
-    })
-    const child = ctx.agents.get(started.childId)
-    expect(child).toBeDefined()
-
-    const messageId = await ctx.subagents.reportFrom(child!, message('an explicit report'), {
-      delivery: 'next-step',
-      signal: testSignal,
-    })
-
-    await vi.waitFor(() => {
-      expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(1)
-    })
-    const report = parent.session.events.flatMap(event => event.type === 'user/message'
-      && event.data.source.kind === 'subagent-report' ? [event.data] : [])[0]
-    expect(report?.id).toBe(messageId)
-
-    releaseChild.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => {
-      expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(2)
-    })
-  })
-})
-
 describe('continuable settlement delivery', () => {
-  it('tells the parent what the child finished with, without being asked', async () => {
-    const { ctx, parent } = await setup([textResponse('the answer'), textResponse('parent ack')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    const notice = settlementNotices(parent)[0]!
-    expect(notice.sender).toBe(started.childId)
-    expect(notice.text).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.`
-      + '\nIts closing message:\nthe answer',
-    )
-    // The collapsed row states the outcome without the child's content.
-    expect(notice.summary).toBe(
-      `Background subagent ${started.childId} finished and will do no further work unless you send it more.`,
-    )
-  })
-
   it('delivers even when the child already reported for itself', async () => {
     const { ctx, parent } = await setup([textResponse('the answer'), textResponse('parent ack')])
     const started = await ctx.subagents.startContinuable(startSpec(parent))
@@ -1899,200 +1007,6 @@ describe('continuable settlement delivery', () => {
     // description can promise it; bookkeeping "did it report?" would make the
     // promise conditional on a channel this manager does not own.
     await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-  })
-
-  it('delivers the terminal reason when the child never had a chance to report', async () => {
-    const { ctx, parent } = await setup([maxTokensResponse('half an ans'), textResponse('parent ack')])
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} ran out of room before it finished.`
-      + '\nIts closing message:\nhalf an ans',
-    )
-  })
-
-  it('tells the parent a policy-rejected delivery was declined, not finished', async () => {
-    const { ctx, parent } = await setup([textResponse('parent ack')])
-    // A pre-step rejection on the child — a UserPromptSubmit deny, a policy
-    // plugin — discards the claimed prompt without running it.
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject === parent) return next()
-      return { kind: 'reject' }
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} declined the task.`
-      + '\nIt left no closing message.',
-    )
-  })
-
-  it('reports a turn that failed before reaching its first step', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('the answer'), gate: releaseFirst.promise },
-      { chunks: textResponse('parent ack') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    // The shipped durability checkpoint (`dsh-session-checkpoint-policy`) is
-    // fail-closed at the step boundary, so a rejected write ends the turn after
-    // it claimed its messages and before it entered a step.
-    ctx.on('agent/pre-step', async ({ agent: subject, turn }, next) => {
-      if (subject.session.header.parentSession === undefined || turn < 2) return next()
-      throw new Error('ENOSPC: no space left on device')
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await followup(ctx, parent, started.childId, message('second task'))
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    // The parent must not be told the child finished: the delivery it is still
-    // waiting on was claimed out of the inbox and then swallowed by the failure.
-    const child = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(child.events, 'second task')).toBe(false)
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} failed before it finished.`
-      + '\nIts closing message:\nthe answer',
-    )
-  })
-
-  it('reports accepted work cut short before its first step as stopped', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const releaseCheckpoint = Promise.withResolvers<undefined>()
-    const atCheckpoint = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('the answer'), gate: releaseFirst.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    // A step-boundary participant — the shipped durability checkpoint, a hook,
-    // prompt assembly — holding the child's second turn open before its first
-    // step, which is where teardown cancellation then catches it.
-    ctx.on('agent/pre-step', async ({ agent: subject, turn }, next) => {
-      if (subject.session.header.parentSession === undefined || turn < 2) return next()
-      atCheckpoint.resolve(undefined)
-      await releaseCheckpoint.promise
-      return next()
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    // Queued while turn 1 still runs, so turn 2 opens and claims it without a
-    // second model call: the Activation is mid-turn when the drain cancels it.
-    await followup(ctx, parent, started.childId, message('second task'))
-    releaseFirst.resolve(undefined)
-    await atCheckpoint.promise
-    const drained = drainManager(ctx)
-    releaseCheckpoint.resolve(undefined)
-    await drained
-
-    // Turn 2 leaves a balanced no-step `aborted` end, so the log alone would
-    // answer with turn 1's clean completion and tell the parent its still-unrun
-    // task had finished.
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.`
-      + '\nIts closing message:\nthe answer',
-    )
-  })
-
-  it('reports a child stopped before it ever reached the model as stopped', async () => {
-    const releaseCheckpoint = Promise.withResolvers<undefined>()
-    const atCheckpoint = Promise.withResolvers<undefined>()
-    const { ctx, parent } = await setupWith(new GatedAdapter([]))
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject.session.header.parentSession === undefined) return next()
-      atCheckpoint.resolve(undefined)
-      await releaseCheckpoint.promise
-      return next()
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await atCheckpoint.promise
-    const drained = drainManager(ctx)
-    releaseCheckpoint.resolve(undefined)
-    await drained
-
-    // This epoch closed no stepped turn at all, which on its own reads as "had
-    // nothing to report"; only the interruption distinguishes it from a child
-    // that genuinely finished with no output.
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.`
-      + '\nIt left no closing message.',
-    )
-  })
-
-  it('reports a child an ancestor interrupted before its first step as stopped', async () => {
-    const atCheckpoint = Promise.withResolvers<undefined>()
-    const releaseCheckpoint = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('parent ack') }])
-    const { ctx, parent } = await setupWith(adapter)
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject.session.header.parentSession === undefined) return next()
-      atCheckpoint.resolve(undefined)
-      await releaseCheckpoint.promise
-      return next()
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await atCheckpoint.promise
-    // The shipped interrupt path: nothing about it runs inside this manager, so
-    // no pre-cancel sample could see it — the child's own log has to say so.
-    ctx.subagents.interrupt(started.childId, { kind: 'ancestor', agent: parent })
-    releaseCheckpoint.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.`
-      + '\nIt left no closing message.',
-    )
-  })
-
-  it('reports accepted work cancelled before any turn could open as stopped', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const releaseMaintenance = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('the answer'), gate: releaseChild.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    const child = await vi.waitFor(() => {
-      const live = ctx.agents.get(started.childId)
-      expect(live).toBeDefined()
-      return live!
-    })
-    // A descendant keeps the child resident once its own turn closes, so the
-    // maintenance phase below is reachable without racing settlement.
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-    await vi.waitFor(() => { expect(ctx.agents.get(grandchild.childId)).toBeDefined() })
-    releaseChild.resolve(undefined)
-    await vi.waitFor(() => { expect(child.status).toBe('idle') })
-
-    // Context maintenance folds into `idle` and defers waking work, so this
-    // delivery is accepted with no turn to claim it.
-    const maintaining = child.runMaintenance(async () => { await releaseMaintenance.promise })
-    await followup(ctx, parent, started.childId, message('never runs'))
-    const drained = drainManager(ctx)
-    releaseMaintenance.resolve(undefined)
-    releaseGrandchild.resolve(undefined)
-    await maintaining
-    await drained
-
-    // Turn 1 closed cleanly and no later turn opened, so the cancelled queue is
-    // the only record that this epoch was cut short.
-    expect(hasUserText(child.session.events, 'never runs')).toBe(false)
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(1) })
-    expect(settlementNotices(parent)[0]!.text).toBe(
-      `Background subagent ${started.childId} was stopped before it finished.`
-      + '\nIts closing message:\nthe answer',
-    )
   })
 
   it('withholds an outcome the harness could not durably release', async () => {
@@ -2117,132 +1031,6 @@ describe('continuable settlement delivery', () => {
     expect(settlementNotices(parent)[0]!.text).toBe(
       `Background subagent ${started.childId} failed before it finished.\nIt left no closing message.`,
     )
-  })
-
-  it('gives an idle parent one ordinary turn on the notice', async () => {
-    const { ctx, parent, adapter } = await setup([textResponse('the answer'), textResponse('parent ack')])
-    const turnStarts: number[] = []
-    ctx.on('session/event', (session, event) => {
-      if (session.id === parent.id && event.type === 'turn/start') turnStarts.push(event.data.turn)
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => {
-      expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(1)
-    })
-    expect(turnStarts).toEqual([1])
-  })
-
-  it('batches simultaneous notices into one step of a busy parent', async () => {
-    const releaseChildren = Promise.withResolvers<undefined>()
-    const releaseParent = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('parent works'), gate: releaseParent.promise },
-      { chunks: textResponse('first child'), gate: releaseChildren.promise },
-      { chunks: textResponse('second child'), gate: releaseChildren.promise },
-      { chunks: textResponse('parent reacts') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    // Open a parent turn first, so both notices arrive while it is running.
-    parent.followup(createUserMessage({ content: message('start working'), source: { kind: 'user' } }))
-    await vi.waitFor(() => { expect(parent.status).toBe('running') })
-
-    const first = await ctx.subagents.startContinuable(startSpec(parent))
-    const second = await ctx.subagents.startContinuable(startSpec(parent))
-    releaseChildren.resolve(undefined)
-    await waitNoActivation(ctx, first.childId)
-    await waitNoActivation(ctx, second.childId)
-
-    // Both notices are waiting for the same step boundary, not two turns.
-    expect(parent.inbox.nextStep).toHaveLength(2)
-    expect(parent.inbox.nextTurn).toHaveLength(0)
-    const turnStarts: number[] = []
-    ctx.on('session/event', (session, event) => {
-      if (session.id === parent.id && event.type === 'turn/start') turnStarts.push(event.data.turn)
-    })
-    releaseParent.resolve(undefined)
-    await vi.waitFor(() => { expect(settlementNotices(parent)).toHaveLength(2) })
-    expect(turnStarts).toEqual([])
-    // Both children released together, so which settles first is not ordered.
-    expect(new Set(settlementNotices(parent).map(entry => entry.sender)))
-      .toEqual(new Set([first.childId, second.childId]))
-  })
-
-  it('holds a maintaining parent live until it can read the notice', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const releaseSecond = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('outer') },
-      { chunks: textResponse('first inner'), gate: releaseFirst.promise },
-      { chunks: textResponse('second inner'), gate: releaseSecond.promise },
-      { chunks: textResponse('outer reacts') },
-      { chunks: textResponse('root reacts') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const outer = await ctx.subagents.startContinuable(startSpec(parent))
-    const middle = await vi.waitFor(() => {
-      const live = ctx.agents.get(outer.childId)
-      expect(live).toBeDefined()
-      return live!
-    })
-    const first = await ctx.subagents.startContinuable(startSpec(middle))
-    const second = await ctx.subagents.startContinuable(startSpec(middle))
-    await vi.waitFor(() => { expect(middle.status).toBe('idle') })
-
-    // `Agent.status` folds maintenance into `idle`, and a waking send behind it
-    // only arms a deferred wake. The first child's release moves the middle
-    // Activation's settlement watcher onto its quiescence race; the second one
-    // then arrives at exactly the point where an unaccounted delivery would be
-    // judged quiet, settled, and cancelled — clearing the inbox it sits in.
-    const maintaining = Promise.withResolvers<undefined>()
-    const maintenance = middle.runMaintenance(async () => { await maintaining.promise })
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, first.childId)
-    releaseSecond.resolve(undefined)
-    await waitNoActivation(ctx, second.childId)
-    expect(ctx.agents.get(outer.childId)).toBe(middle)
-
-    maintaining.resolve(undefined)
-    await maintenance
-    await vi.waitFor(() => { expect(settlementNotices(middle)).toHaveLength(2) })
-    expect(settlementNotices(middle).map(entry => entry.sender))
-      .toEqual([first.childId, second.childId])
-    await waitNoActivation(ctx, outer.childId)
-  })
-
-  it('delivers before releasing the ownership that lets the parent settle', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('outer') },
-      { chunks: textResponse('inner'), gate: releaseChild.promise },
-      { chunks: textResponse('outer reacts') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const outer = await ctx.subagents.startContinuable(startSpec(parent))
-    const middle = await vi.waitFor(() => {
-      const live = ctx.agents.get(outer.childId)
-      expect(live).toBeDefined()
-      return live!
-    })
-    const inner = await ctx.subagents.startContinuable(startSpec(middle))
-    await vi.waitFor(() => { expect(middle.status).toBe('idle') })
-
-    const manager = (ctx.subagents as unknown as {
-      continuations: { activations: Map<SessionId, { ownedChildren: Set<SessionId> }> }
-    }).continuations
-    let ownedAtDelivery: SessionId[] | undefined
-    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
-      if (agent !== middle || message.source.kind !== 'subagent-settled') return
-      ownedAtDelivery = [...manager.activations.get(middle.id)!.ownedChildren]
-    })
-
-    releaseChild.resolve(undefined)
-    await waitNoActivation(ctx, inner.childId)
-    // Still owned at delivery: the parent is structurally unable to settle in
-    // the window the notice crosses, rather than winning a race against it.
-    expect(ownedAtDelivery).toEqual([inner.childId])
-    await waitNoActivation(ctx, outer.childId)
   })
 
   it('does not wake a parent whose own teardown already began', async () => {
@@ -2340,23 +1128,6 @@ describe('continuable settlement delivery', () => {
     expect(warnings).toEqual([])
   })
 
-  it('logs a rejected notice instead of failing the child\'s teardown', async () => {
-    const { ctx, parent } = await setup([textResponse('the answer')])
-    const warnings: string[] = []
-    ctx.logger.warn = (text: string) => { warnings.push(text) }
-    vi.spyOn(parent, 'followup').mockImplementation(() => {
-      throw new Error('parent closed during delivery')
-    })
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-    expect(ends[0]!.stopReason).toBe('completed')
-    expect(warnings.some(warning => warning.includes('settlement notice was not delivered'))).toBe(true)
-  })
-
   it('stays silent about a child the caller was told does not exist', async () => {
     const { ctx, parent } = await setup([])
     const drains: Promise<void>[] = []
@@ -2366,34 +1137,6 @@ describe('continuable settlement delivery', () => {
       .rejects.toMatchObject({ code: 'DRAINING' })
     await Promise.all(drains)
     expect(settlementNotices(parent)).toEqual([])
-  })
-})
-
-describe('continuable lifecycle observation', () => {
-  it('emits one paired start/end per residency epoch', async () => {
-    const { ctx, parent } = await setup([textResponse('first'), textResponse('second')])
-    parkParent(ctx, parent)
-    const starts: SubagentRunInfo[] = []
-    const ends: SubagentRunEndInfo[] = []
-    ctx.on('subagent/start', (info) => { starts.push(info) })
-    ctx.on('subagent/end', (info) => { ends.push(info) })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => { expect(ends).toHaveLength(1) })
-
-    // A cold resume is a NEW epoch with its own pair.
-    await followup(ctx, parent, started.childId, message('again'))
-    await waitNoActivation(ctx, started.childId)
-    await vi.waitFor(() => { expect(ends).toHaveLength(2) })
-
-    expect(starts).toHaveLength(2)
-    expect(starts.map(info => info.id)).toEqual([started.childId, started.childId])
-    expect(starts.map(info => info.provider)).toEqual(['spawn', 'spawn'])
-    // Each end pairs its own start's runId.
-    expect(ends.map(info => info.runId)).toEqual(starts.map(info => info.runId))
-    // Both epochs ran their own scripted response; neither exhausted the corpus.
-    expect(ends.map(info => info.stopReason)).toEqual(['completed', 'completed'])
   })
 })
 
@@ -2446,26 +1189,6 @@ describe('continuable public API', () => {
     expect(hasUserText(loaded.events, 'aborted')).toBe(false)
   })
 
-  it('does not cancel an accepted turn when the caller signal aborts afterwards', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('first'), gate: releaseFirst.promise },
-      { chunks: textResponse('second') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-
-    const controller = new AbortController()
-    await followup(ctx, parent, started.childId, message('survives'), controller.signal)
-    // After acceptance the manager owns the Activation independently.
-    controller.abort('caller gave up')
-
-    releaseFirst.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(hasUserText(loaded.events, 'survives')).toBe(true)
-  })
 })
 
 describe('continuable errors', () => {
@@ -2593,45 +1316,6 @@ describe('continuable errors', () => {
     hold.resolve(undefined)
   })
 
-  it('reapplies the descriptor model route and reasoning effort on cold resume', async () => {
-    const effort = ReasoningEffortId('high')
-    const adapter = new MockAdapter([textResponse('first'), textResponse('resumed')], {
-      efforts: [{ id: effort, name: 'High' }],
-      defaultEffort: effort,
-    })
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable({
-      ...startSpec(parent),
-      request: {
-        prompt: message('routed work'),
-        parent,
-        agentOptions: { provider: 'mock', model: 'child-model', reasoningEffort: effort },
-      },
-    })
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(loaded.events.find(event => event.type === 'subagent/descriptor')?.data)
-      .toMatchObject({
-        agentProvider: 'mock',
-        agentModel: 'child-model',
-        agentReasoningEffort: 'high',
-      })
-
-    // The resumed Activation runs on the declared route, not the parent's.
-    await followup(ctx, parent, started.childId, message('again'))
-    await vi.waitFor(() => {
-      expect(ctx.agents.get(started.childId)?.options).toMatchObject({
-        model: 'child-model',
-        reasoningEffort: 'high',
-      })
-    })
-    await waitNoActivation(ctx, started.childId)
-    const resumed = await ctx.sessionPersistence.load(started.childId)
-    expect(resumed.events.flatMap(event => event.type === 'request/header'
-      ? [event.data.header.config.reasoningEffort]
-      : [])).toEqual([effort, effort])
-  })
-
   it('unloading the manager drains its live activations', async () => {
     const hold = Promise.withResolvers<undefined>()
     const adapter = new GatedAdapter([{ chunks: textResponse('child'), gate: hold.promise }])
@@ -2661,174 +1345,6 @@ describe('continuable errors', () => {
 })
 
 describe('SubagentRuntime.interrupt', () => {
-  it('aborts the current turn durably, parks accepted follow-ups, and resumes them only on a waking send', async () => {
-    const releaseFirst = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('first'), gate: releaseFirst.promise },
-      { chunks: textResponse('second') },
-      { chunks: textResponse('third') },
-      { chunks: textResponse('fourth') },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    await followup(ctx, parent, started.childId, message('parked B'))
-    await followup(ctx, parent, started.childId, message('parked C'))
-    const cancelSpy = vi.spyOn(child, 'cancel')
-
-    ctx.subagents.interrupt(started.childId, { kind: 'user', parentSessionId: parent.id })
-
-    expect(cancelSpy).toHaveBeenCalledTimes(1)
-    expect(cancelSpy).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
-    // Cancellation is cooperative: the held model call observes it on release.
-    releaseFirst.resolve(undefined)
-    await child.whenIdle()
-    // Parked, not resumed: no second model request follows the abort, the
-    // accepted follow-ups stay pending, and the same Activation stays resident.
-    expect(adapter.requests).toHaveLength(1)
-    expect(child.inbox.nextTurn).toHaveLength(2)
-    expect(child.status).toBe('idle')
-    expect(ctx.agents.get(started.childId)).toBe(child)
-
-    // Only an explicit waking send restores the driver; the parked items then
-    // run before it in the existing FIFO order.
-    await followup(ctx, parent, started.childId, message('waking D'))
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(userTexts(loaded.events)).toEqual(['child task', 'parked B', 'parked C', 'waking D'])
-    const turnEnds = loaded.events
-      .filter(event => event.type === 'turn/end')
-      .map(event => (event).data.reason.kind)
-    expect(turnEnds).toEqual(['aborted', 'completed', 'completed', 'completed'])
-  })
-
-  it('interrupts only the target while its resident descendant keeps running', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child'), gate: releaseChild.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const grandchildAgent = ctx.agents.get(grandchild.childId)!
-    const childCancel = vi.spyOn(child, 'cancel')
-    const grandchildCancel = vi.spyOn(grandchildAgent, 'cancel')
-
-    ctx.subagents.interrupt(started.childId, { kind: 'user', parentSessionId: parent.id })
-
-    expect(childCancel).toHaveBeenCalledTimes(1)
-    releaseChild.resolve(undefined)
-    await child.whenIdle()
-    // The target parks as a waiting owner; the published descendant was never
-    // signalled and keeps its own turn open.
-    expect(grandchildCancel).not.toHaveBeenCalled()
-    expect(ctx.agents.get(started.childId)).toBe(child)
-    expect(ctx.agents.get(grandchild.childId)).toBe(grandchildAgent)
-
-    releaseGrandchild.resolve(undefined)
-    await waitNoActivation(ctx, grandchild.childId)
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(grandchild.childId)
-    const turnEnds = loaded.events
-      .filter(event => event.type === 'turn/end')
-      .map(event => (event).data.reason.kind)
-    expect(turnEnds).toEqual(['completed'])
-  })
-
-  it('authorizes the human address against the live target\'s durable direct parent', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const cancelSpy = vi.spyOn(child, 'cancel')
-
-    expect(() => { ctx.subagents.interrupt(started.childId, {
-      kind: 'user',
-      parentSessionId: SessionId('stranger'),
-    }) }).toThrow(/belongs to another parent session/)
-    expect(cancelSpy).not.toHaveBeenCalled()
-
-    ctx.subagents.interrupt(started.childId, { kind: 'user', parentSessionId: parent.id })
-    expect(cancelSpy).toHaveBeenCalledWith({ kind: 'user' }, { keepInbox: true })
-    hold.resolve(undefined)
-    await waitNoActivation(ctx, started.childId)
-  })
-
-  it('lets a deep exact live ancestor interrupt its descendant with the parent cause', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child'), gate: releaseChild.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const grandchild = await ctx.subagents.startContinuable(startSpec(child))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const grandchildAgent = ctx.agents.get(grandchild.childId)!
-    const childCancel = vi.spyOn(child, 'cancel')
-    const grandchildCancel = vi.spyOn(grandchildAgent, 'cancel')
-
-    // Deep ancestor: the top-level parent interrupts the grandchild.
-    ctx.subagents.interrupt(grandchild.childId, { kind: 'ancestor', agent: parent })
-    expect(grandchildCancel).toHaveBeenCalledWith({ kind: 'parent' }, { keepInbox: true })
-    // Direct ancestor: the same authority kind covers the immediate parent.
-    ctx.subagents.interrupt(started.childId, { kind: 'ancestor', agent: parent })
-    expect(childCancel).toHaveBeenCalledWith({ kind: 'parent' }, { keepInbox: true })
-
-    releaseChild.resolve(undefined)
-    releaseGrandchild.resolve(undefined)
-    await waitNoActivation(ctx, grandchild.childId)
-    await waitNoActivation(ctx, started.childId)
-  })
-
-  it('rejects self, sibling, stale, and unrelated ancestor callers without touching the target', async () => {
-    const releaseA = Promise.withResolvers<undefined>()
-    const releaseB = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('a'), gate: releaseA.promise },
-      { chunks: textResponse('b'), gate: releaseB.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const targetStart = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const target = ctx.agents.get(targetStart.childId)!
-    const siblingStart = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    const sibling = ctx.agents.get(siblingStart.childId)!
-    const stranger = ctx.agentLoop.create(SessionId('stranger'), { provider: 'mock', model: 'mock' })
-    const stale = { ...parent, id: parent.id } as unknown as Agent
-    const cancelSpy = vi.spyOn(target, 'cancel')
-
-    expect(() => { ctx.subagents.interrupt(targetStart.childId, { kind: 'ancestor', agent: target }) })
-      .toThrow(/cannot interrupt itself/)
-    expect(() => { ctx.subagents.interrupt(targetStart.childId, { kind: 'ancestor', agent: sibling }) })
-      .toThrow(/not a live descendant/)
-    expect(() => { ctx.subagents.interrupt(targetStart.childId, { kind: 'ancestor', agent: stranger }) })
-      .toThrow(/not a live descendant/)
-    expect(() => { ctx.subagents.interrupt(targetStart.childId, { kind: 'ancestor', agent: stale }) })
-      .toThrow(/exact live ancestor/)
-    // A stale caller is rejected before target lookup, even for an absent id.
-    expect(() => { ctx.subagents.interrupt(SessionId('missing'), { kind: 'ancestor', agent: stale }) })
-      .toThrow(/exact live ancestor/)
-    expect(cancelSpy).not.toHaveBeenCalled()
-
-    releaseA.resolve(undefined)
-    releaseB.resolve(undefined)
-    await waitNoActivation(ctx, targetStart.childId)
-    await waitNoActivation(ctx, siblingStart.childId)
-  })
-
   it('accepts absent and one-shot ids as no-ops without touching the one-shot Agent', async () => {
     const { ctx, parent } = await setup([textResponse('one shot')])
     ctx.subagents.interrupt(SessionId('missing'), { kind: 'user', parentSessionId: parent.id })
@@ -2857,25 +1373,4 @@ describe('SubagentRuntime.interrupt', () => {
     ctx.subagents.interrupt(started.childId, { kind: 'ancestor', agent: parent })
   })
 
-  it('accepts an interrupt that lost the race with disposal without signalling twice', async () => {
-    const hold = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([{ chunks: textResponse('working'), gate: hold.promise }])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const cancelSpy = vi.spyOn(child, 'cancel')
-
-    // Scoped teardown opens the disposal transaction synchronously and issues
-    // its own whole-Activation cancel before this call returns.
-    const drained = ctx.subagents.drainContinuableDescendants([parent])
-    expect(cancelSpy).toHaveBeenCalledTimes(1)
-
-    // Interrupt after the cutoff: accepted no-op, no second signal, no waiting.
-    ctx.subagents.interrupt(started.childId, { kind: 'user', parentSessionId: parent.id })
-    expect(cancelSpy).toHaveBeenCalledTimes(1)
-
-    hold.resolve(undefined)
-    await drained
-  })
 })

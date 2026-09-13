@@ -64,7 +64,7 @@ export interface EffectMeta {
  * config threw; `UNLOADING` — disposers are running; `DISPOSED` — the fiber
  * was removed and cannot restart.
  */
-export declare const enum FiberState {
+export declare enum FiberState {
     PENDING = 0,
     LOADING = 1,
     ACTIVE = 2,

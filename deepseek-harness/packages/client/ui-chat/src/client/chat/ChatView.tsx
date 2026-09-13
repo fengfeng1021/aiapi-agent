@@ -8,8 +8,11 @@ import type {
 import { Button, IconChevronDownOutline14, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatViewSlotProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
+import type { ChatNode } from '../contract/chat-nodes.ts'
 import { PendingSteeringBubble, PendingSubmissionBubble } from './MessageItem.tsx'
 import { ChatNodeSeat } from './ChatNodeSeat.tsx'
+import { ToolGroupSeat } from './ToolGroup.tsx'
+import { groupFlowRows, type FlowRow } from './tool-grouping.ts'
 import { TurnNavigator } from './TurnNavigator.tsx'
 import { mergeTurnRailItems, type TurnRailItem } from './turn-rail-items.ts'
 import { formatRunDuration } from './message-chrome.ts'
@@ -287,6 +290,49 @@ export function ChatView({
     owner => renderSlot('conversation.message.images', { ...owner, loadImage }),
     [loadImage, renderSlot],
   )
+  const renderSeat = useCallback((nodeKey: string) => (
+    <ChatNodeSeat
+      key={nodeKey}
+      nodeKey={nodeKey}
+      historyIncomplete={hasMore}
+      compactTranscript={compactTranscript}
+      useChat={useChat}
+      useStore={useStore}
+      actions={actions}
+      selectedCallId={selectedCallId}
+      cwd={cwd}
+      openFile={requestOpenFile}
+      inspectCall={inspectCall}
+      forkAt={forkAt}
+      renderMessageImages={renderMessageImages}
+      fileMentions={fileMentions}
+      renderSlot={renderSlot}
+      t={t}
+    />
+  ), [
+    hasMore, compactTranscript, useChat, useStore, actions, selectedCallId,
+    cwd, requestOpenFile, inspectCall, forkAt, renderMessageImages,
+    fileMentions, renderSlot, t,
+  ])
+  // Consecutive same-round tool rows fold into one summary row. In compact
+  // transcript mode a closed turn's process disclosure already summarizes
+  // its tools, so groups there fall back to plain rows.
+  const rows: readonly FlowRow[] = useMemo(() => {
+    const toolCoords = (key: string): { turn: number; step: number } | undefined => {
+      const node = nodeStore.get(key) as ChatNode | undefined
+      if (node?.kind !== 'tool-call') return undefined
+      const { location } = node
+      if (location.kind !== 'step') return undefined
+      return { turn: location.turn.turn, step: location.step.step }
+    }
+    const grouped = groupFlowRows(order, toolCoords)
+    if (!compactTranscript) return grouped
+    return grouped.flatMap((row): readonly FlowRow[] => {
+      if (row.kind !== 'tools') return [row]
+      const closed = timeline.turns.get(row.turn)?.status === 'closed'
+      return closed ? row.keys.map((key): FlowRow => ({ kind: 'node', key })) : [row]
+    })
+  }, [order, nodeStore, compactTranscript, timeline])
   const runningTurnStart = useMemo(() => runningTurnStartTime(timeline), [timeline])
 
   const listRef = useRef<HTMLDivElement | null>(null)
@@ -741,23 +787,14 @@ export function ChatView({
               </button>
             </div>
           )}
-          {order.map(nodeKey => (
-            <ChatNodeSeat
-              key={nodeKey}
-              nodeKey={nodeKey}
-              historyIncomplete={hasMore}
-              compactTranscript={compactTranscript}
+          {rows.map(row => row.kind === 'node' ? renderSeat(row.key) : (
+            <ToolGroupSeat
+              key={row.key}
+              groupKey={row.key}
+              nodeKeys={row.keys}
               useChat={useChat}
-              useStore={useStore}
-              actions={actions}
               selectedCallId={selectedCallId}
-              cwd={cwd}
-              openFile={requestOpenFile}
-              inspectCall={inspectCall}
-              forkAt={forkAt}
-              renderMessageImages={renderMessageImages}
-              fileMentions={fileMentions}
-              renderSlot={renderSlot}
+              renderSeat={renderSeat}
               t={t}
             />
           ))}

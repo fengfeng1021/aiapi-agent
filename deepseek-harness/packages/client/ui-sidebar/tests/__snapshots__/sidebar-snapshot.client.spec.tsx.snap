@@ -25,13 +25,25 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
             data-slot="sidebar.brand.mark"
             style="display: contents;"
           >
-            <img
-              alt="Aiapi"
-              height="24"
-              src="/logo.png"
-              style="display: inline-block; vertical-align: middle; object-fit: contain;"
-              width="24"
-            />
+            <span
+              class="brandMarkContainer"
+              style="width: 24px; height: 24px;"
+            >
+              <img
+                alt="Aiapi"
+                class="brandLogoLight"
+                height="24"
+                src="/logo.png"
+                width="24"
+              />
+              <img
+                alt="Aiapi"
+                class="brandLogoDark"
+                height="24"
+                src="/logo-dark.png"
+                width="24"
+              />
+            </span>
           </div>
         </span>
         <svg
@@ -59,6 +71,18 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
         xmlns="http://www.w3.org/2000/svg"
       />
     </button>
+    <div
+      class="primaryArea"
+    >
+      <div
+        class="primaryActions"
+      >
+        <div
+          data-slot="sidebar.primary.action"
+          style="display: contents;"
+        />
+      </div>
+    </div>
     <div
       class="regionArea"
     >
@@ -119,13 +143,25 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
               data-slot="sidebar.brand.mark"
               style="display: contents;"
             >
-              <img
-                alt="Aiapi"
-                height="24"
-                src="/logo.png"
-                style="display: inline-block; vertical-align: middle; object-fit: contain;"
-                width="24"
-              />
+              <span
+                class="brandMarkContainer"
+                style="width: 24px; height: 24px;"
+              >
+                <img
+                  alt="Aiapi"
+                  class="brandLogoLight"
+                  height="24"
+                  src="/logo.png"
+                  width="24"
+                />
+                <img
+                  alt="Aiapi"
+                  class="brandLogoDark"
+                  height="24"
+                  src="/logo-dark.png"
+                  width="24"
+                />
+              </span>
             </div>
           </span>
           <span
@@ -141,7 +177,7 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
                 <span
                   class="localBuildTitle"
                 >
-                  Aiapi
+                  Aiapi Agent
                 </span>
                 <span
                   class="buildVersion"
@@ -177,9 +213,9 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
       <svg
         data-content="c0ce4dcc"
         fill="none"
-        height="14"
+        height="16"
         viewBox="0 0 16 16"
-        width="14"
+        width="16"
         xmlns="http://www.w3.org/2000/svg"
       />
       <span
@@ -188,6 +224,18 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
         New Session
       </span>
     </button>
+    <div
+      class="primaryArea"
+    >
+      <div
+        class="primaryActions"
+      >
+        <div
+          data-slot="sidebar.primary.action"
+          style="display: contents;"
+        />
+      </div>
+    </div>
     <div
       class="regionArea"
     >
@@ -248,13 +296,25 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
               data-slot="sidebar.brand.mark"
               style="display: contents;"
             >
-              <img
-                alt="Aiapi"
-                height="24"
-                src="/logo.png"
-                style="display: inline-block; vertical-align: middle; object-fit: contain;"
-                width="24"
-              />
+              <span
+                class="brandMarkContainer"
+                style="width: 24px; height: 24px;"
+              >
+                <img
+                  alt="Aiapi"
+                  class="brandLogoLight"
+                  height="24"
+                  src="/logo.png"
+                  width="24"
+                />
+                <img
+                  alt="Aiapi"
+                  class="brandLogoDark"
+                  height="24"
+                  src="/logo-dark.png"
+                  width="24"
+                />
+              </span>
             </div>
           </span>
           <span
@@ -270,7 +330,7 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
                 <span
                   class="localBuildTitle"
                 >
-                  Aiapi
+                  Aiapi Agent
                 </span>
                 <span
                   class="buildVersion"
@@ -306,9 +366,9 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       <svg
         data-content="c0ce4dcc"
         fill="none"
-        height="14"
+        height="16"
         viewBox="0 0 16 16"
-        width="14"
+        width="16"
         xmlns="http://www.w3.org/2000/svg"
       />
       <span
@@ -317,6 +377,18 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
         新会话
       </span>
     </button>
+    <div
+      class="primaryArea"
+    >
+      <div
+        class="primaryActions"
+      >
+        <div
+          data-slot="sidebar.primary.action"
+          style="display: contents;"
+        />
+      </div>
+    </div>
     <div
       class="regionArea"
     >

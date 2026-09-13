@@ -3,7 +3,8 @@
  * document — `html { color-scheme }` for native UA chrome (scrollbars, form
  * controls), `body[data-ds-dark-theme]` for the token palette, the active
  * theme's alias-token overrides as inline CSS variables on body, the content
- * font-size axis (`--dsh-content-font-size`), and one presenter-owned
+ * font-size axis (`--dsh-content-font-size`), the rendered weight axes
+ * (`--dsw-font-weight` body, `--ds-font-weight-code` code), and one presenter-owned
  * `meta[name="theme-color"]` for surrounding browser UI. Pure DOM writes, no
  * React involvement; the presenter only ever retracts what it wrote itself,
  * so foreign attributes, metadata, and inline styles survive.
@@ -15,6 +16,20 @@ export const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 
 /** Body variable carrying the user's content font size in px. */
 export const CONTENT_FONT_SIZE_VARIABLE = '--dsh-content-font-size'
+
+/** Body variable carrying the interface font stack. */
+export const UI_FONT_FAMILY_VARIABLE = '--dsw-font-family'
+
+/** Body variable carrying the code font stack. */
+export const CODE_FONT_FAMILY_VARIABLE = '--ds-font-family-code'
+
+/** Body variable carrying the interface weight (follows the Chinese family). */
+export const UI_FONT_WEIGHT_VARIABLE = '--dsw-font-weight'
+
+/** Body variable carrying the code weight (follows the Latin/digit family). */
+export const CODE_FONT_WEIGHT_VARIABLE = '--ds-font-weight-code'
+/** Body variable carrying conversation CJK letter-spacing (Maple Mono CN tightening). */
+export const CJK_LETTER_SPACING_VARIABLE = '--dsh-cjk-letter-spacing'
 
 /** Applies theme snapshots to the document; one instance per plugin fiber. */
 export class ThemePresenter {
@@ -45,6 +60,11 @@ export class ThemePresenter {
     if (scheme === 'dark') body.setAttribute(DARK_ATTRIBUTE, '')
     else body.removeAttribute(DARK_ATTRIBUTE)
     body.style.setProperty(CONTENT_FONT_SIZE_VARIABLE, `${snapshot.fontSize}px`)
+    body.style.setProperty(UI_FONT_FAMILY_VARIABLE, snapshot.fonts.ui)
+    body.style.setProperty(CODE_FONT_FAMILY_VARIABLE, snapshot.fonts.code)
+    body.style.setProperty(UI_FONT_WEIGHT_VARIABLE, `${snapshot.fontWeights.body}`)
+    body.style.setProperty(CODE_FONT_WEIGHT_VARIABLE, `${snapshot.fontWeights.code}`)
+    body.style.setProperty(CJK_LETTER_SPACING_VARIABLE, snapshot.cjkLetterSpacing)
     for (const name of this.appliedTokens) body.style.removeProperty(name)
     this.appliedTokens = []
     for (const [name, value] of Object.entries(snapshot.active.tokens)) {
@@ -55,12 +75,17 @@ export class ThemePresenter {
     if (!this.themeColorMeta.isConnected) document.head.append(this.themeColorMeta)
   }
 
-  /** Retract root color-scheme, the palette attribute, token variables, the font-size axis, and the owned metadata node. */
+  /** Retract root color-scheme, the palette attribute, token variables, the font-size and weight axes, and the owned metadata node. */
   dispose(): void {
     document.documentElement.style.removeProperty('color-scheme')
     const body = document.body
     body.removeAttribute(DARK_ATTRIBUTE)
     body.style.removeProperty(CONTENT_FONT_SIZE_VARIABLE)
+    body.style.removeProperty(UI_FONT_FAMILY_VARIABLE)
+    body.style.removeProperty(CODE_FONT_FAMILY_VARIABLE)
+    body.style.removeProperty(UI_FONT_WEIGHT_VARIABLE)
+    body.style.removeProperty(CODE_FONT_WEIGHT_VARIABLE)
+    body.style.removeProperty(CJK_LETTER_SPACING_VARIABLE)
     for (const name of this.appliedTokens) body.style.removeProperty(name)
     this.appliedTokens = []
     this.themeColorMeta.remove()

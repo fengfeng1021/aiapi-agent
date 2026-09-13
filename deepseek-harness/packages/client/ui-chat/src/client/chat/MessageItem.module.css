@@ -40,6 +40,40 @@
   word-break: break-word;
 }
 
+/* A typed file mention that stays in prose is still an inline reference, but
+   it wraps at any character so a long path never leaves the bubble. Session
+   and skill chips keep the one-line reference treatment, and the queue
+   preview keeps its own nowrap/ellipsis policy. */
+.bubble [data-ref-chip='file'],
+.bubble [data-ref-chip='folder'] {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Dropped-file references live in their own bubble above the message text,
+   together with the image attachments (submit appends them as `@path` lines;
+   presentation lifts them back out), so each file reads as an independent
+   attachment whose long basename wraps at any character inside its own
+   width. */
+.fileBubble {
+  max-width: 100%;
+  padding: 8px 14px;
+  border-radius: 18px;
+  background: var(--dsw-specific-bubble);
+  color: var(--dsw-alias-label-primary);
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
+  overflow-wrap: anywhere;
+}
+
+.fileBubbleIcon {
+  width: 1em;
+  height: 1em;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-secondary);
+  vertical-align: -0.125em;
+}
+
 .referenceSummary {
   color: var(--dsw-alias-label-tertiary);
   font-size: var(--dsh-content-font-size-secondary, 13px);

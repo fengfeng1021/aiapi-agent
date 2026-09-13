@@ -183,6 +183,16 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Close one live Session this controller owns, cancelling any in-flight turn
+   * and removing it from the live store. A Session live under another owner is
+   * left untouched, so callers must re-check liveness before deleting logs.
+   * @param sessionId - live Session identity to close.
+   */
+  closeSession(sessionId: SessionId): Promise<void> {
+    return this.agents.closeSession(sessionId)
+  }
+
+  /**
    * Inspect one attached or persisted Session without activating its Agent.
    * @param sessionId - durable Session identity.
    * @param signal - optional caller cancellation for persistence reads.

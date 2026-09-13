@@ -121,8 +121,11 @@ export type WorkspaceBrowserInjected = {
   forkSession: (sessionId: SessionId) => void
   /** Rename a Host Workspace (rejects on name conflict; resolves on durability). */
   renameWorkspace: (workspaceId: WorkspaceId, title: string) => Promise<void>
-  /** Delete only a Host Workspace registration; directory and Session logs remain. */
-  deleteWorkspace: (workspaceId: WorkspaceId) => Promise<void>
+  /**
+   * Delete only a Host Workspace registration; directory and Session logs
+   * remain, unless `cascadeSessions` permanently deletes every owned Session.
+   */
+  deleteWorkspace: (workspaceId: WorkspaceId, cascadeSessions?: boolean) => Promise<void>
   /**
    * Reorder a Workspace in the durable registry display order.
    * Omitted anchor appends to the end.
@@ -134,6 +137,12 @@ export type WorkspaceBrowserInjected = {
    * session clears the selection into the New Session view state.
    */
   archiveSession: (sessionId: SessionId) => Promise<void>
+  /**
+   * Permanently delete a Session (durable log included). Deleting the current
+   * session clears the selection into the New Session view state. Live
+   * sessions reject; close the session before deleting it.
+   */
+  deleteSession: (sessionId: SessionId) => Promise<void>
   /**
    * Reorder a session inside its Workspace account (DOM-insertBefore
    * semantics: omitted anchor appends to the end). The view refreshes from

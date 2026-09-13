@@ -1,6 +1,8 @@
 /** Appearance and font-size row stores: snapshot-mirror actions and the revision guards. */
 import { describe, expect, it } from 'vitest'
-import { createAppearanceRowStore, createFontSizeRowStore } from '../src/client/settings-store.ts'
+import {
+  createAppearanceRowStore, createFontSectionStore, createFontSizeRowStore,
+} from '../src/client/settings-store.ts'
 
 describe('createAppearanceRowStore', () => {
   it('init shape: system preference with revision at -1', () => {
@@ -40,6 +42,29 @@ describe('createFontSizeRowStore', () => {
     store.actions.sync(12, 2)
     store.actions.sync(12, 3)
     expect(store.getSnapshot().fontSize).toBe(16)
+    expect(store.getSnapshot().revision).toBe(3)
+  })
+})
+
+describe('createFontSectionStore', () => {
+  it('init shape: Windows Terminal pairing with persisted weights and revision at -1', () => {
+    const store = createFontSectionStore().create()
+    expect(store.getSnapshot()).toEqual({
+      latin: 'Cascadia Mono', cjk: 'Microsoft YaHei UI', latinWeight: 400, cjkWeight: 500, revision: -1,
+    })
+  })
+
+  it('sync mirrors families and weights; the revision guard drops stale and duplicate writes', () => {
+    const store = createFontSectionStore().create()
+    store.actions.sync('Noto Sans Mono', 'Maple Mono CN', 700, 600, 3)
+    expect(store.getSnapshot()).toEqual({
+      latin: 'Noto Sans Mono', cjk: 'Maple Mono CN', latinWeight: 700, cjkWeight: 600, revision: 3,
+    })
+    store.actions.sync('Cascadia Mono', 'Microsoft YaHei UI', 400, 500, 2)
+    store.actions.sync('Cascadia Mono', 'Microsoft YaHei UI', 400, 500, 3)
+    expect(store.getSnapshot().latin).toBe('Noto Sans Mono')
+    expect(store.getSnapshot().latinWeight).toBe(700)
+    expect(store.getSnapshot().cjkWeight).toBe(600)
     expect(store.getSnapshot().revision).toBe(3)
   })
 })

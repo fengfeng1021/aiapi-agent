@@ -70,6 +70,7 @@
 
 .block :where(pre) {
   font: var(--dsl-code-block-content-font);
+  font-weight: var(--dsw-font-markdown-code-block-font-weight);
   padding: 16px;
   margin: 0 !important;
   overflow-x: auto;

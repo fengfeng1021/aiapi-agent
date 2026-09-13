@@ -33,3 +33,33 @@
      a font-relative amount, so it holds across the font axis. */
   vertical-align: -0.125em;
 }
+
+/* Bare URLs stay inline and take the same blue as markdown links. */
+.userLink {
+  color: var(--shiki-token-link);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.userLink:hover {
+  text-decoration: underline;
+}
+
+/* Backtick commands: purple on the inline-code pill, same glyphs as the body text. */
+.userCode {
+  font-family: var(--dsw-font-family);
+  font-size: 1em;
+  font-weight: inherit;
+  color: var(--shiki-token-function);
+  background-color: var(--dsw-alias-markdown-inline-code);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Version hashes read as constants: orange without a pill, same glyphs as the body text. */
+.userHash {
+  font-family: var(--dsw-font-family);
+  font-size: 1em;
+  font-weight: inherit;
+  color: var(--shiki-token-parameter);
+}

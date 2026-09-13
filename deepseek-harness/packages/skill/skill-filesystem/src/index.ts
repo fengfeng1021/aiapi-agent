@@ -32,6 +32,9 @@ import {
   type SkillProviderObservation,
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
+import { bundledInstallerProvider } from './bundled-installer.ts'
+import { registerSkillInstallTools } from './install-tools.ts'
+import type { SkillInstallRoots } from './install.ts'
 
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
@@ -43,7 +46,7 @@ const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
 
 export const name = 'skill-filesystem'
-export const inject = ['skills']
+export const inject = ['skills', 'tools']
 
 /** Local filesystem skill provider configuration. */
 export interface Config {
@@ -71,6 +74,12 @@ export interface Config {
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
+  /**
+   * Register the model-facing `skill_install`, `skill_enable`, and
+   * `skill_disable` tools. Defaults to false: installer writes are a
+   * privileged opt-in per composition, never a default surface.
+   */
+  installTools?: boolean
 }
 
 export const Config: Schema<Config> = z.object({
@@ -86,6 +95,7 @@ export const Config: Schema<Config> = z.object({
   watchMaxProjects: z.number().default(DEFAULT_WATCH_MAX_PROJECTS),
   watchFollowSymlinks: z.boolean().default(true),
   bundledSkillDir: z.string(),
+  installTools: z.boolean().default(false),
 })
 
 interface SkillRoot {
@@ -133,9 +143,18 @@ export function apply(ctx: Context, config: Config = {}): void {
     provider = new FileSystemSkillProvider(ctx, control, config)
     return provider
   })
+  ctx.effect(() => ctx.skills.registerProvider(() => bundledInstallerProvider), 'skill-filesystem bundled installer')
   ctx.effect(function* () {
     yield async () => { await provider.dispose() }
   }, 'skill-filesystem watcher')
+  if (config.installTools === true) {
+    ctx.effect(() => registerSkillInstallTools(ctx, {
+      installRoots: cwd => provider.installRoots(cwd),
+      refreshCatalog: () => {
+        provider.refreshCatalog()
+      },
+    }), 'skill-filesystem install tools')
+  }
   ctx.on('fs/observed', (target, _observation, actor) => {
     if (mutationToolName(actor) === undefined) return
     provider.observeHostMutation(target.displayPath)
@@ -151,6 +170,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
+  private readonly refresh: () => void
   private disposal: Promise<void> | undefined
 
   constructor(
@@ -163,7 +183,8 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
-    this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
+    this.refresh = control.invalidate
+    this.watchManager = new SkillWatchManager(ctx, this.refresh, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
     // must see only its explicit roots, or every such provider would
@@ -227,6 +248,57 @@ export class FileSystemSkillProvider implements SkillProvider {
    */
   observeHostMutation(path: string): void {
     this.watchManager.observeHostMutation(path)
+  }
+
+  /**
+   * Resolve the concrete writable roots backing the installer tools.
+   * Bundled roots ship inside packages and are never install targets.
+   * @param cwd - session workspace selecting the project roots, if any.
+   * @returns install roots by scope bucket.
+   */
+  async installRoots(cwd: string | undefined): Promise<SkillInstallRoots> {
+    let projectDsh: string | undefined
+    let projectAgents: string | undefined
+    let userDsh: string | undefined
+    let userAgents: string | undefined
+    const custom: string[] = []
+    for (const root of await this.roots(cwd)) {
+      switch (root.source) {
+        case 'project-dsh':
+          projectDsh ??= root.path
+          break
+        case 'project-agents':
+          projectAgents ??= root.path
+          break
+        case 'user-dsh':
+          userDsh ??= root.path
+          break
+        case 'user-agents':
+          userAgents ??= root.path
+          break
+        case 'custom':
+          custom.push(root.path)
+          break
+        case 'bundled':
+          // Bundled roots ship inside packages and are never install targets.
+          break
+        default:
+          // Future sources stay read-only until the installer adopts them.
+          break
+      }
+    }
+    return {
+      ...(projectDsh === undefined ? {} : { projectDsh }),
+      ...(projectAgents === undefined ? {} : { projectAgents }),
+      ...(userDsh === undefined ? {} : { userDsh }),
+      ...(userAgents === undefined ? {} : { userAgents }),
+      custom,
+    }
+  }
+
+  /** Invalidate the provider catalog after an installer mutation. */
+  refreshCatalog(): void {
+    this.refresh()
   }
 
   /**

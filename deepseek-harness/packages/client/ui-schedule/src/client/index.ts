@@ -5,8 +5,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type {} from '@deepseek-ai/dsh-schedule/client'
 import { ScheduleCatalogAction } from './ScheduleCatalogAction.tsx'
+import { SchedulesFooterAction } from './SchedulesFooterAction.tsx'
 import { en, NS, zh, type ScheduleCatalogKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -22,6 +24,12 @@ export const inject = ['slots', 'locale']
 /** Register the dictionaries and Session-header catalog action. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-schedule: dictionaries')
+  ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({
+    name: 'sidebar.footer.action',
+    id: 'schedules-entry',
+    order: 22,
+    locale: NS,
+  }, SchedulesFooterAction))
   ctx.slots.inject(
     'conversation.session.header.actions',
     () => ctx.slots.register({

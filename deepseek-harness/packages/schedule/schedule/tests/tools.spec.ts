@@ -197,6 +197,60 @@ describe('Schedule tool protocol', () => {
       .toMatchObject({ id: 'schedule-2' })
   })
 
+  it('creates records with management metadata in version-2 envelopes', async () => {
+    const test = await harness()
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'check metrics',
+      every_seconds: 300,
+      title: 'Metrics',
+      project: 'harness',
+      model: 'deepseek-chat',
+      reasoning: 'high',
+      notify: 'on-failure',
+      paused: true,
+    }))).toEqual({
+      id: 'schedule-1',
+      kind: 'every',
+      prompt: 'check metrics',
+      everySeconds: 300,
+      scheduledAt: '2026-08-05T12:05:00.000Z',
+      meta: {
+        title: 'Metrics',
+        project: 'harness',
+        model: 'deepseek-chat',
+        reasoning: 'high',
+        notify: 'on-failure',
+        paused: true,
+      },
+      state: 'scheduled',
+      deliveryMode: 'session-local',
+    })
+    const changes = test.agent.session.events.filter(event => event.type === 'schedule/change')
+    expect(changes.at(-1)?.data).toMatchObject({ version: 2, operation: 'create' })
+    expect(value(await execute(test, 'schedule_list', {}))).toMatchObject([
+      { id: 'schedule-1', meta: { title: 'Metrics' } },
+    ])
+  })
+
+  it('keeps metadata-free creates in version-1 envelopes', async () => {
+    const test = await harness()
+    const created = value(await execute(test, 'schedule_create', { prompt: 'plain', after_seconds: 30 }))
+    expect('meta' in (created as Record<string, unknown>)).toBe(false)
+    const changes = test.agent.session.events.filter(event => event.type === 'schedule/change')
+    expect(changes.at(-1)?.data).toMatchObject({ version: 1, operation: 'create' })
+  })
+
+  it('rejects invalid metadata values without persisting', async () => {
+    const test = await harness()
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'x', after_seconds: 30, notify: 'sometimes',
+    }))).toEqual({ code: 'invalid_rule', message: 'schedule metadata notify must be all, on-failure, or never.' })
+    expect(value(await execute(test, 'schedule_create', {
+      prompt: 'x', after_seconds: 30, title: '  ',
+    }))).toEqual({ code: 'invalid_rule', message: 'schedule metadata title must be a non-empty string.' })
+    expect(test.agent.session.events.filter(event => event.type === 'schedule/change')).toEqual([])
+  })
+
   it('rejects an empty or padded delete id before persistence', async () => {
     const test = await harness()
     for (const id of ['', ' schedule-1']) {

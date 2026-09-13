@@ -9,6 +9,28 @@ import type {} from '@deepseek-ai/dsh-session/types'
 /** Stable reminder identity that is unique and never reused within one session. */
 export type ScheduleId = Branded<'ScheduleId'>
 
+/** Version-2 delivery notification policy for one durable reminder. */
+export type ScheduleNotifyPolicy = 'all' | 'on-failure' | 'never'
+
+/**
+ * Optional version-2 management metadata carried on any durable record.
+ * Absent on version-1 records; presentation applies documented defaults.
+ */
+export interface ScheduleMetadata {
+  /** Display title; defaults to the prompt's leading text. */
+  readonly title?: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy; defaults to every run. */
+  readonly notify?: ScheduleNotifyPolicy
+  /** Paused records stay active but are managed as paused. */
+  readonly paused?: boolean
+}
+
 /** Durable one-shot reminder created from a positive delay. */
 export interface AfterScheduleRecord {
   /** Session-local stable identity. */
@@ -21,6 +43,8 @@ export interface AfterScheduleRecord {
   readonly afterSeconds: number
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 
 /** Durable one-shot reminder created from an absolute instant. */
@@ -33,6 +57,8 @@ export interface AtScheduleRecord {
   readonly prompt: string
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 
 /** Durable fixed-rate reminder whose next target remains creation-anchor-aligned. */
@@ -47,6 +73,8 @@ export interface EveryScheduleRecord {
   readonly everySeconds: number
   /** Earliest anchor-aligned occurrence not yet dispatched. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 
 /** Structured local-calendar input accepted by `schedule_create`. */
@@ -70,28 +98,32 @@ export type ScheduleRecord = OneShotScheduleRecord | EveryScheduleRecord
 
 /** Creates one durable reminder record. */
 export interface ScheduleCreateChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 carries record metadata. */
+  readonly version: 1 | 2
   readonly operation: 'create'
   readonly schedule: ScheduleRecord
 }
 
 /** Deletes one currently active reminder. */
 export interface ScheduleDeleteChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'delete'
   readonly id: ScheduleId
 }
 
 /** Records that one active one-shot reminder entered the durable dispatch history. */
 export interface OneShotScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
 }
 
 /** Records one fixed-rate decision and advances directly past missed occurrences. */
 export interface EveryScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
   /** Wall-clock decision time used to select the latest due occurrence. */
@@ -103,6 +135,25 @@ export type ScheduleDispatchChange = OneShotScheduleDispatchChange | EverySchedu
 
 /** Strict version-1 durable Schedule mutation union. */
 export type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
+
+/** Management status of one active reminder derived from its durable metadata. */
+export type ScheduleActiveStatus = 'active' | 'paused'
+
+/** Effective version-2 metadata with presentation defaults applied. */
+export interface ResolvedScheduleMetadata {
+  /** Display title: stored title or the prompt's leading text. */
+  readonly title: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy. */
+  readonly notify: ScheduleNotifyPolicy
+  /** Whether the record is managed as paused. */
+  readonly paused: boolean
+}
 
 /** Current delivery timing derived from the durable record and wall clock. */
 export type ScheduleState = 'scheduled' | 'overdue'

@@ -6,7 +6,7 @@ Schedule owns durable reminders that return to the original live Session as ordi
 
 ## Durable records
 
-`ScheduleId` is a [branded id](core.md#branded-ids), unique and never reused within one Session. Version 1 supports a positive safe-integer `after_seconds` delay, an explicit absolute `at` target, or a safe-integer `every_seconds` interval of at least five minutes. Creation canonicalizes every first target into a four-digit-year RFC 3339 UTC `scheduledAt`; an `after` record retains its submitted delay, an `at` record stores only the resulting instant, and an `every` record retains its fixed interval and next target.
+`ScheduleId` is a [branded id](core.md#branded-ids), unique and never reused within one Session. Version 1 supports a positive safe-integer `after_seconds` delay, an explicit absolute `at` target, or a safe-integer `every_seconds` interval of at least five minutes. Creation canonicalizes every first target into a four-digit-year RFC 3339 UTC `scheduledAt`; an `after` record retains its submitted delay, an `at` record stores only the resulting instant, and an `every` record retains its fixed interval and next target. Version 2 keeps the same three rules and lets any record carry an optional `meta` object with management metadata (title, project, model, reasoning effort, notification policy, paused flag). Writers emit a version-2 envelope only when a record carries metadata and stay on version 1 otherwise; delete and dispatch envelopes always stay on version 1, since they carry no record. The decoder reads both versions, and version-1 records replay without injected metadata.
 
 ```ts type-equiv
 /** Durable one-shot reminder created from a positive delay. */
@@ -21,6 +21,8 @@ interface AfterScheduleRecord {
   readonly afterSeconds: number
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 ```
 
@@ -35,6 +37,8 @@ interface AtScheduleRecord {
   readonly prompt: string
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 ```
 
@@ -51,6 +55,34 @@ interface EveryScheduleRecord {
   readonly everySeconds: number
   /** Earliest anchor-aligned occurrence not yet dispatched. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
+}
+```
+
+```ts type-equiv
+/** Version-2 delivery notification policy for one durable reminder. */
+type ScheduleNotifyPolicy = 'all' | 'on-failure' | 'never'
+```
+
+```ts type-equiv
+/**
+ * Optional version-2 management metadata carried on any durable record.
+ * Absent on version-1 records; presentation applies documented defaults.
+ */
+interface ScheduleMetadata {
+  /** Display title; defaults to the prompt's leading text. */
+  readonly title?: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy; defaults to every run. */
+  readonly notify?: ScheduleNotifyPolicy
+  /** Paused records stay active but are managed as paused. */
+  readonly paused?: boolean
 }
 ```
 
@@ -104,7 +136,8 @@ The version-1 `schedule/change` Session event is the only durable Schedule autho
 ```ts type-equiv
 /** Creates one durable reminder record. */
 interface ScheduleCreateChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 carries record metadata. */
+  readonly version: 1 | 2
   readonly operation: 'create'
   readonly schedule: ScheduleRecord
 }
@@ -113,7 +146,8 @@ interface ScheduleCreateChange {
 ```ts type-equiv
 /** Deletes one currently active reminder. */
 interface ScheduleDeleteChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'delete'
   readonly id: ScheduleId
 }
@@ -122,7 +156,8 @@ interface ScheduleDeleteChange {
 ```ts type-equiv
 /** Records that one active one-shot reminder entered the durable dispatch history. */
 interface OneShotScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
 }
@@ -131,7 +166,8 @@ interface OneShotScheduleDispatchChange {
 ```ts type-equiv
 /** Records one fixed-rate decision and advances directly past missed occurrences. */
 interface EveryScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
   /** Wall-clock decision time used to select the latest due occurrence. */
@@ -149,7 +185,7 @@ type ScheduleDispatchChange = OneShotScheduleDispatchChange | EveryScheduleDispa
 type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
 ```
 
-The strict decoder and fold reject unknown versions, extra fields, reused ids, mismatched one-shot or Every dispatch shapes, and delete or dispatch transitions against inactive records. A normal Session folds its complete event stream. A fork folds only events at or after `SessionHeader.seedLength`, so it retains history without adopting the parent Session's active reminders. The Schedule projection derives that boundary from the immutable header passed to `init(header)`, uses the shared transition, and persists both active records and used-id history so cached restore preserves strict replay. The `schedule/change` declaration and source location are also indexed in the [persistence catalog](../persistence-catalog.md#schedulechange--log-only).
+The strict decoder and fold reject versions other than 1 or 2, extra fields, reused ids, mismatched one-shot or Every dispatch shapes, malformed version-2 metadata, and delete or dispatch transitions against inactive records. A normal Session folds its complete event stream. A fork folds only events at or after `SessionHeader.seedLength`, so it retains history without adopting the parent Session's active reminders. The Schedule projection derives that boundary from the immutable header passed to `init(header)`, uses the shared transition, and persists both active records and used-id history so cached restore preserves strict replay. The `schedule/change` declaration and source location are also indexed in the [persistence catalog](../persistence-catalog.md#schedulechange--log-only).
 
 ## Active views and management
 
@@ -175,7 +211,32 @@ type ScheduleView = ScheduleRecord & {
 }
 ```
 
-The generated [tool catalog](../tool-catalog.md#deepseek-aidsh-schedule) owns the argument and result schemas for `schedule_create`, `schedule_list`, and `schedule_delete`. Management calls serialize with due work in one Agent-scoped queue. Every read or decision first waits for the shared Session persistence barrier; create and an actual delete wait again after appending. A barrier failure reports `persistence_uncertain` instead of guessing whether an eager write committed. The other stable error codes are `invalid_prompt`, `invalid_selector`, `invalid_rule`, `invalid_time_zone`, `not_future`, `time_out_of_range`, `frequency_too_high`, `corrupt_schedule_log`, and `internal_error`.
+```ts type-equiv
+/** Management status of one active reminder derived from its durable metadata. */
+type ScheduleActiveStatus = 'active' | 'paused'
+```
+
+```ts type-equiv
+/** Effective version-2 metadata with presentation defaults applied. */
+interface ResolvedScheduleMetadata {
+  /** Display title: stored title or the prompt's leading text. */
+  readonly title: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy. */
+  readonly notify: ScheduleNotifyPolicy
+  /** Whether the record is managed as paused. */
+  readonly paused: boolean
+}
+```
+
+Management surfaces resolve each active record through `resolveScheduleMetadata` (stored title or the prompt's leading forty code points, all-run notices, unpaused) and `scheduleActiveStatus` instead of branching on the absent `meta` key.
+
+The generated [tool catalog](../tool-catalog.md#deepseek-aidsh-schedule) owns the argument and result schemas for `schedule_create`, `schedule_list`, and `schedule_delete`. Management calls serialize with due work in one Agent-scoped queue. Every read or decision first waits for the shared Session persistence barrier; create and an actual delete wait again after appending. A barrier failure reports `persistence_uncertain` instead of guessing whether an eager write committed. The other stable error codes are `invalid_prompt`, `invalid_selector`, `invalid_rule`, `invalid_time_zone`, `not_future`, `time_out_of_range`, `frequency_too_high`, `corrupt_schedule_log`, and `internal_error`. `schedule_create` accepts the six metadata fields beside its rule selector and validates them before the first barrier; there is no update operation, so changing metadata means deleting and recreating the reminder.
 
 ## Read-only Web catalog
 
@@ -185,7 +246,7 @@ The shipped Web bundle keeps `ui-schedule` disabled by default, while the explic
 
 ## Live delivery
 
-The process-local owner derives its earliest timer from the durable fold and rereads the wall clock after every bounded wait. Cold Sessions do no work; reopening one reconstructs timers and makes past targets overdue. Due one-shots take priority and enter one later turn at a time. When no one-shot is due, all overdue Every records form the single batch described above.
+The process-local owner derives its earliest timer from the durable fold and rereads the wall clock after every bounded wait. Cold Sessions do no work; reopening one reconstructs timers and makes past targets overdue. Paused records stay listed but are invisible to every due branch: they neither dispatch nor arm timers. Due one-shots take priority and enter one later turn at a time. When no one-shot is due, all overdue Every records form the single batch described above.
 
 Due work waits for the Agent to become fully idle and claims the maintenance phase before it refolds state, samples the decision, queues one `followup()`, and appends the corresponding dispatch changes. It never calls `steer()` and never interrupts a current turn.
 

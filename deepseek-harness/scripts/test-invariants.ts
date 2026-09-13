@@ -6,8 +6,8 @@
  */
 
 import { expect } from 'vitest'
-import { FiberState, Inject, RegistryService, ValidationError } from '@deepseek-ai/cordis'
-import type { Context, Plugin } from '@deepseek-ai/cordis'
+import { Inject, RegistryService, ValidationError } from '@deepseek-ai/cordis'
+import type { Context, FiberState, Plugin } from '@deepseek-ai/cordis'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type {
   ImageAttachmentLimits,
@@ -31,6 +31,13 @@ export interface TestInvariantCompanion {
   readonly default?: unknown
   apply(ctx: Context): Promise<() => void>
 }
+
+/** Value mirror of cordis FiberState const enum: const enums have no runtime object under esbuild/vitest, so mirror the pinned values while keeping the type. */
+const FiberStateMirror = {
+  PENDING: 0 as FiberState.PENDING,
+  LOADING: 1 as FiberState.LOADING,
+  ACTIVE: 2 as FiberState.ACTIVE,
+} as const
 
 /** Private service dependency that holds ordinary root plugins until invariant startup completes. */
 export const TEST_INVARIANT_READY_SERVICE = 'testInvariantReady'
@@ -91,7 +98,7 @@ RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, ge
     config,
     getOuterStack,
   )
-  const initiallyPending = fiber.ctx.fiber.state === FiberState.PENDING
+  const initiallyPending = fiber.ctx.fiber.state === FiberStateMirror.PENDING
   host.barrierOwners.add(fiber.ctx.fiber)
   return joinInvariantStartup(fiber, host.ready, initiallyPending)
 }
@@ -214,7 +221,7 @@ function hasBarrierOwner(host: InvariantHost, ctx: Context): boolean {
   while (true) {
     if (
       host.barrierOwners.has(fiber)
-      && (fiber.state === FiberState.LOADING || fiber.state === FiberState.ACTIVE)
+      && (fiber.state === FiberStateMirror.LOADING || fiber.state === FiberStateMirror.ACTIVE)
     ) {
       return true
     }
@@ -226,7 +233,7 @@ function hasBarrierOwner(host: InvariantHost, ctx: Context): boolean {
 
 async function requireActive(fiber: PluginFiber, label: string): Promise<void> {
   await fiber.await()
-  if (fiber.state !== FiberState.ACTIVE) {
+  if (fiber.state !== FiberStateMirror.ACTIVE) {
     throw new Error(`test invariants: ${label} settled without becoming active`)
   }
 }

@@ -1,0 +1,127 @@
+/* Font section page: two font groups plus a trailing note. Each group is
+ * a selector row, a live preview swatch, and an optional weight slider.
+ * Row geometry matches the Language and font-size rows (gap 8, pad 16/0,
+ * hairline separator per group); the note carries no separator. The
+ * preview wraps instead of scrolling so the sheet never owns a scroll
+ * container on a painted surface (scrollbar rebind contract). */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 0;
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: 48px;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.desc {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Selector pill (h36 r18, module fill, pad 0/14, gap 12). */
+.selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 18px;
+  background: var(--dsw-alias-bg-module-platform);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.selector:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.chevron {
+  flex: none;
+}
+
+.note {
+  padding: 12px 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+/* Live preview swatch: the same sentence rendered in the selected family
+ * and its effective weight, so an uninstalled family reads as a fallback
+ * before it ever reaches the conversation. Border-only (no surface fill)
+ * and wrapping (no scroll container). */
+.preview {
+  margin: 0 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-label-primary);
+  overflow-wrap: anywhere;
+}
+
+/* Weight slider row: title plus a native range with its numeric value. */
+.weightRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 16px;
+}
+
+.weightTitle {
+  flex: none;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--dsw-alias-label-primary);
+}
+
+.weightValue {
+  flex: none;
+  min-width: 3ch;
+  text-align: right;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-primary);
+}

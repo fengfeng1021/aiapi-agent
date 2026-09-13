@@ -26,7 +26,7 @@ Status: implemented
 
 ### Session 日志权威与工具
 
-版本 1 `schedule/change` stream 是唯一持久的 Schedule 权威。create 记录拥有一个 Session 内不复用的品牌 id、trim 后的提示词、规则判别字段和 UTC 目标。delete 与一次性 dispatch 是终结转换。Every dispatch 会存储 id 与决策时点，使 fold 将该记录直接推进到错过的发生时点之后。严格 decoder 与纯 fold 会拒绝未知版本、额外字段、重复使用的 id、形状不匹配的 dispatch，以及针对非活动记录的转换。普通 Session 折叠完整 stream；fork 只折叠 `SessionHeader.seedLength` 位置及其后的 event。
+版本 1 或 2 的 `schedule/change` stream 是唯一持久的 Schedule 权威。create 记录拥有一个 Session 内不复用的品牌 id、trim 后的提示词、规则判别字段和 UTC 目标，以及可选的版本 2 管理元数据（[管理元数据](2026-09-09-schedule-management-metadata.zh.md)）。delete 与一次性 dispatch 是终结转换。Every dispatch 会存储 id 与决策时点，使 fold 将该记录直接推进到错过的发生时点之后。严格 decoder 与纯 fold 会拒绝 1 或 2 以外的版本、额外字段、重复使用的 id、形状不匹配的 dispatch，以及针对非活动记录的转换。普通 Session 折叠完整 stream；fork 只折叠 `SessionHeader.seedLength` 位置及其后的 event。
 
 `ctx.sessionProjections` 存在时，Schedule 会注册一个复用同一 transition 的严格单元，并发布完整的活动 `ScheduleRecord[]`；共享的 [projection state 决策](../architecture/2026-08-19-session-projection-state-and-client-views.zh.md)拥有其初始化与 restore 约定。损坏的持久输入会使既有读取路径失败，而不会产生部分数组。浏览器安全的记录词汇通过纯类型子路径 `@deepseek-ai/dsh-schedule/client` 暴露。
 

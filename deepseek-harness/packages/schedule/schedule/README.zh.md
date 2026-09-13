@@ -77,8 +77,8 @@ Session projection 是可选能力。`ctx.sessionProjections` 存在时，插件
 
 本包建立在一个分离与三项承诺之上：
 
-- **会话日志拥有状态。** 版本 1 的 `schedule/change` 事件是唯一持久权威；timer、工具值与 follow-up 都是从折叠结果重建的可丢弃投影。
-- **严格回放。** 解码器拒绝未知版本、额外字段、重复使用的 id、形状不匹配的 dispatch 以及针对非活动记录的转换，因此损坏的流会大声失败，而不是派生出错误视图。
+- **会话日志拥有状态。** 版本 1 与版本 2 的 `schedule/change` 事件是唯一持久权威；timer、工具值与 follow-up 都是从折叠结果重建的可丢弃投影。写入端仍发出版本 1；版本 2 只增加可选的记录元数据。
+- **严格回放。** 解码器拒绝 1 或 2 以外的版本、额外字段、重复使用的 id、形状不匹配的 dispatch、畸形的版本 2 元数据以及针对非活动记录的转换，因此损坏的流会大声失败，而不是派生出错误视图。
 - **先持久化再决策。** 每项读取或决策都等待共享的会话 flush barrier，create 与 delete 只在第二个 post-append barrier 之后才确认。
 - **仅限会话本地交付。** 没有外部渠道、没有 cold 会话调度器、也没有回执：到期工作进入同一会话，否则保持活动。
 
@@ -98,7 +98,7 @@ Session projection 是可选能力。`ctx.sessionProjections` 存在时，插件
 
 ### 持久状态与回放
 
-普通会话折叠完整事件流。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此子会话永远不会继承父会话的提醒。Schedule projection 从传给 `init(header)` 的不可变 `SessionHeader` 派生该边界，并对同一自有后缀应用同一个 transition 函数。每条 create 记录都携带稳定的会话本地 `ScheduleId`、已 trim 的提示词与四位年份 RFC 3339 UTC `scheduledAt`；`after` 记录还存储 `afterSeconds`，`at` 记录不保留所提交的偏移量或本地字段，`every` 记录存储 `everySeconds`，并把 `scheduledAt` 视为尚未 dispatch 的最早创建锚点对齐发生时点。delete 与一次性 dispatch 只携带 id；`every` dispatch 会附加 `acceptedAt`，回放直接推进到该决策时点之后的第一个锚点对齐目标。
+普通会话折叠完整事件流。fork 只折叠 `session.events.slice(session.header.seedLength ?? 0)`，因此子会话永远不会继承父会话的提醒。Schedule projection 从传给 `init(header)` 的不可变 `SessionHeader` 派生该边界，并对同一自有后缀应用同一个 transition 函数。每条 create 记录都携带稳定的会话本地 `ScheduleId`、已 trim 的提示词与四位年份 RFC 3339 UTC `scheduledAt`；`after` 记录还存储 `afterSeconds`，`at` 记录不保留所提交的偏移量或本地字段，`every` 记录存储 `everySeconds`，并把 `scheduledAt` 视为尚未 dispatch 的最早创建锚点对齐发生时点。版本 2 记录还可携带 `meta`（标题、项目、模型、推理强度、通知策略与暂停标记）；工具暂不接受元数据，因此版本 1 日志原样回放，管理界面通过 `resolveScheduleMetadata` 解析默认值。delete 与一次性 dispatch 只携带 id；`every` dispatch 会附加 `acceptedAt`，回放直接推进到该决策时点之后的第一个锚点对齐目标。
 
 ### 客户端 projection
 
@@ -112,13 +112,13 @@ projection 只携带持久记录。它不持久化或传输 scheduled／overdue 
 
 ### 管理流水线
 
-一条 agent 范围的队列把每项已接纳的管理事务与 live owner 的到期事务从 preflight 到任何 post-append barrier 全程串行化。`schedule_create` 建立检查点、分配永不复用的 id、追加 create 事件，再次建立检查点；被取消的调用方在追加前停止。每次成功的管理 preflight 还会要求 live owner 重新计算，这会在先前的 post-append barrier 返回 `persistence_uncertain` 后恢复所保留的 create 或 delete 批次。
+一条 agent 范围的队列把每项已接纳的管理事务与 live owner 的到期事务从 preflight 到任何 post-append barrier 全程串行化。`schedule_create` 建立检查点、校验可选的管理元数据、分配永不复用的 id、追加 create 事件，再次建立检查点；被取消的调用方在追加前停止。携带元数据的创建使用版本 2 信封，无元数据的创建保持版本 1，delete 与 dispatch 信封永远保持版本 1。每次成功的管理 preflight 还会要求 live owner 重新计算，这会在先前的 post-append barrier 返回 `persistence_uncertain` 后恢复所保留的 create 或 delete 批次。没有元数据更新操作：变更元数据意味着删除后重建提醒。
 
 每项从折叠结果读取或作出判断的操作都会先等待 `ctx.sessions.flush(session)`；持久化路径缺失、被拒绝或已分离时返回 `persistence_uncertain`，create 与实际 delete 在追加后还会等待第二个 barrier 再确认变更。只依赖输入形状的失败会在序列化事务之前被验证。输入、时间与持久化失败会返回一组封闭的稳定版本 1 错误代码；该封闭联合及各代码的触发条件位于 [`src/tools.ts`](src/tools.ts)。
 
 ### live owner
 
-owner 把长等待拆分为有界的 timer 段，并在每次唤醒后重新读取墙钟。到期工作认领 idle maintenance phase、采样一个决策时点、在 `followup()` 之前构造完整的转义 framing、只在同步入队返回后追加 dispatch、释放 maintenance，然后等待持久化。错过的固定速率间隔永远不会被枚举：整数运算选择每条记录最新一个已到期且与创建锚点对齐的发生时点，并直接推进到第一个未来目标。
+owner 把长等待拆分为有界的 timer 段，并在每次唤醒后重新读取墙钟。已暂停的记录保留在列表中，但永远不会进入到期决策，也不会装载 timer。到期工作认领 idle maintenance phase、采样一个决策时点、在 `followup()` 之前构造完整的转义 framing、只在同步入队返回后追加 dispatch、释放 maintenance，然后等待持久化。错过的固定速率间隔永远不会被枚举：整数运算选择每条记录最新一个已到期且与创建锚点对齐的发生时点，并直接推进到第一个未来目标。
 
 逾期提醒首先为持久化建立检查点，然后通过 `runMaintenance()` 认领 agent 的 idle maintenance phase；如果某个轮次或另一项 maintenance task 已占用 agent，认领会失败，记录保持活动，owner 在 `whenIdle()` 后重试。获准的 maintenance task 会重新折叠、采样一个决策时点、构造固定 framing、同步将 `followup()` 入队，并在释放 phase 前追加 dispatch。dispatch 表示 follow-up 已入队并被记录，不表示模型成功或用户已读取回答。framing 构造或同步 follow-up 失败不会写入 dispatch；追加失败会使 owner 进入故障状态，因为消息可能已经入队；barrier 拒绝则把 dispatch 留给后续普通 preflight。agent 或插件执行资源释放时取消 timer 并停止新工作，但不删除持久记录。
 

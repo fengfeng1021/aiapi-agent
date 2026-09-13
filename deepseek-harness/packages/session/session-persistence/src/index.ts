@@ -270,6 +270,22 @@ export abstract class SessionPersistence extends Service {
   abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
 
   /**
+   * Permanently delete one session's durable materialization, if present.
+   * Backends remove every artifact they own for the id (log file, session
+   * directory, prepared-view reservations). Callers must ensure no live
+   * Session or in-flight writer holds the id: deleting under an active
+   * writer resurrects the log on its next append. Implementations invalidate
+   * their own prepared-view caches for the id. The default rejects; backends
+   * with per-session artifacts override it.
+   * @param _id - deleted session identity.
+   * @returns `true` when materialization existed and was removed, `false`
+   * when the id was already absent (idempotent miss).
+   */
+  delete(_id: SessionId): Promise<boolean> {
+    return Promise.reject(new Error('this session persistence backend does not support deletion'))
+  }
+
+  /**
    * List materialized sessions with cheap per-log change tokens.
    *
    * Repeated observations of an unchanged log return the same revision. A

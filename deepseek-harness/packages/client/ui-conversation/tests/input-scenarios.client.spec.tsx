@@ -153,6 +153,7 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     inputActions: shell.actions,
     keyboard: shell,
     addImages: () => null,
+    addFiles: () => null,
     removeImage: () => {},
     // Every id resolves so the bar's registry prune never drops a test image.
     draftImages: ids => ids.map(id => ({

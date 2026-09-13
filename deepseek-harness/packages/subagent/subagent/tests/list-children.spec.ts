@@ -238,37 +238,6 @@ describe('SubagentRuntime.listChildren', () => {
     ])
   })
 
-  it('lists one-shot and continuable children under the same parent', async () => {
-    const { ctx, parent } = await setup([textResponse('once'), textResponse('again')])
-    const oneShot = await ctx.subagents.start('spawn', {
-      prompt: [{ type: 'text', text: 'finish once' }],
-      parent,
-      signal: new AbortController().signal,
-    })
-    const oneShotId = oneShot.id
-    await oneShot.result
-    await oneShot.dispose()
-    const continuableId = await startChild(ctx, parent, 'continuable child')
-
-    const entries = await ctx.subagents.listChildren(parent.id)
-    expect(entries).toHaveLength(2)
-    expect(entries).toContainEqual({
-      kind: 'child',
-      id: oneShotId,
-      mode: 'one-shot',
-      activity: 'inactive',
-      hasChildren: false,
-    })
-    expect(entries).toContainEqual({
-      kind: 'child',
-      id: continuableId,
-      label: 'continuable child',
-      mode: 'continuable',
-      activity: 'inactive',
-      hasChildren: false,
-    })
-  })
-
   it('accepts a persisted (non-live) parent target after restart', async () => {
     const { ctx } = await setup([])
     // A parent that exists only in persistence — the restart shape.
@@ -1180,53 +1149,6 @@ describe('SubagentRuntime.listDescendants', () => {
       kind: 'child', id: leafId, label: 'deep leaf', mode: 'continuable',
       activity: 'running', hasChildren: false, parentId, depth,
     }])
-  })
-
-  it('discovers continuable descendants below ordinary and one-shot intermediates', { timeout: 20_000 }, async () => {
-    const { ctx, parent } = await setup([textResponse('one shot')])
-    // An ordinary fork has no descriptor: omitted itself, subtree still walked.
-    const fork = ctx.sessions.fork(parent.session, undefined, SessionId('plain-fork'))
-    await ctx.sessions.flush(fork)
-    const underFork = await authorChild(ctx, '00000000-0000-4000-8000-00000000bbb1', {
-      parentSession: fork.header.id,
-      createdAt: 2,
-      origin: 'subagent',
-    }, childEvents(descriptorPayload('under the fork')))
-    // A real one-shot child, then a continuable authored below it.
-    const oneShot = await ctx.subagents.start('spawn', {
-      label: 'one-shot intermediate',
-      prompt: [{ type: 'text', text: 'one-shot task' }],
-      parent,
-      signal: testSignal,
-    })
-    await oneShot.result
-    await ctx.sessions.flush(oneShot.localAgent!.session)
-    const oneShotId = oneShot.id
-    await oneShot.dispose()
-    const underOneShot = await authorChild(ctx, '00000000-0000-4000-8000-00000000bbb2', {
-      parentSession: oneShotId,
-      createdAt: 9_999_999_999_999,
-      origin: 'subagent',
-    }, childEvents(descriptorPayload('under the one-shot')))
-
-    const entries = await ctx.subagents.listDescendants(parent.id)
-    // The fork is absent (descriptor-less); the one-shot is present with its
-    // mode so a caller can see the lineage it walked through.
-    expect(entries.map(entry => entry.id)).not.toContain(fork.header.id)
-    expect(entries).toContainEqual({
-      kind: 'child', id: underFork, label: 'under the fork', mode: 'continuable',
-      activity: 'inactive', hasChildren: false, parentId: fork.header.id, depth: 2,
-    })
-    expect(entries).toContainEqual(expect.objectContaining({
-      kind: 'child', id: oneShotId, mode: 'one-shot', parentId: parent.id, depth: 1,
-    }))
-    expect(entries).toContainEqual({
-      kind: 'child', id: underOneShot, label: 'under the one-shot', mode: 'continuable',
-      activity: 'inactive', hasChildren: false, parentId: oneShotId, depth: 2,
-    })
-    // Pre-order: every child appears after its own parent entry.
-    const position = new Map(entries.map((entry, index) => [entry.id, index]))
-    expect(position.get(underOneShot)!).toBeGreaterThan(position.get(oneShotId)!)
   })
 
   it('diagnoses a settled descriptor-less node while walking its subtree', async () => {

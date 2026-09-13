@@ -234,6 +234,8 @@ interface Config {
 
 面向模型的 `skill({ name })` 工具校验 kebab-case 名称，在与调用策略无关的目录中查找摘要，并在加载前通过 `isModelInvocable` 拒绝无权访问的 skill；随后它根据调用方 agent 的 cwd 重新读取完整定义，并在返回内容前再次检查策略。该工具将无法解析的 skill 报告为未知或已不可用，并返回包含 `<skill_content name="...">`、`<skill_resources>` 和 `<skill_instructions>` 的工具结果。`resourceBase` 仅按需解析显式引用的脚本、参考资料和资产；加载结果不枚举 skill 目录。因此，仅修改正文会改变后续工具调用，而不会生成目录消息或改写先前工具结果。
 
+本地编写通过 `dsh-skill-filesystem` 内部闭环：启用 `installTools` 后，它会在发现所读取的同一批根目录上注册 `skill_install`、`skill_enable` 与 `skill_disable` 模型工具，并附带一个内置的 `skill-installer` 指引 skill，讲授文档组织、校验与 scope 选择。安装会在写入前校验文档，无显式标记时拒绝覆盖，成功后使提供方目录失效；开关只重写两个调用标记。这些工具是每个组合的特权选择启用项，不会进入 shipped 默认值。
+
 ## 浏览器 Session 目录
 
 `SkillListRequest` 通过 `sessionId` 指定一个 Session；`SkillListValue` 返回允许用户调用的条目，其中包含名称、描述、可选使用提示与模型调用可用性。`SessionSkillCatalog` 在不激活 Agent 的前提下读取 Session cwd 与记录的 preset。live Agent 可以提供其作用域 registry，冷 Session 则使用 preset 的 standing scope。

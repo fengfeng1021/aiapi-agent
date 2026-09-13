@@ -23,6 +23,21 @@ export const zh = {
   'relative.now': '现在到期',
   'relative.future': '{value}{unit}后',
   'relative.overdue': '已逾期 {value}{unit}',
+  'footer.label': '已排程',
+  'manager.title': '已排程任务',
+  'manager.search': '搜索提醒',
+  'manager.search.placeholder': '按内容过滤',
+  'manager.empty': '没有符合的提醒',
+  'manager.noSession': '开始一个会话后查看排程',
+  'manager.filter.all': '全部',
+  'manager.paused': '已暂停',
+  'manager.meta.project': '项目',
+  'manager.meta.model': '模型',
+  'manager.meta.reasoning': '推理',
+  'manager.meta.notify': '通知',
+  'manager.notify.all': '所有执行',
+  'manager.notify.on-failure': '失败时',
+  'manager.notify.never': '从不',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -45,6 +60,21 @@ export const en: Record<ScheduleCatalogKey, string> = {
   'relative.now': 'Due now',
   'relative.future': 'in {value} {unit}',
   'relative.overdue': '{value} {unit} overdue',
+  'footer.label': 'Scheduled',
+  'manager.title': 'Scheduled tasks',
+  'manager.search': 'Search reminders',
+  'manager.search.placeholder': 'Filter by content',
+  'manager.empty': 'No matching reminders',
+  'manager.noSession': 'Start a session to view schedules',
+  'manager.filter.all': 'All',
+  'manager.paused': 'Paused',
+  'manager.meta.project': 'Project',
+  'manager.meta.model': 'Model',
+  'manager.meta.reasoning': 'Reasoning',
+  'manager.meta.notify': 'Notifications',
+  'manager.notify.all': 'Every run',
+  'manager.notify.on-failure': 'On failure',
+  'manager.notify.never': 'Never',
 }
 
 /** Key domain of the Schedule catalog namespace. */

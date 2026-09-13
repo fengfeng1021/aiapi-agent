@@ -58,6 +58,26 @@ function preview(content: MessageContent, limit: number): string {
   return unread ? `${normalized}…` : normalized
 }
 
+/** One submit-appended dropped-file reference line: `@` followed by an absolute host path. */
+const FILE_REF_LINE_RE = /^@((?:[A-Za-z]:[\\/]|[\\/]).*)$/u
+
+/**
+ * Drop the contiguous `@<absolute path>` lines a submission appended to the
+ * end of its text (desktop file drops ride the prompt as references). The
+ * rail card previews prose, so a file path must never surface there; the
+ * client's rail derivation applies the same rule to loaded turns.
+ * @param content - one human message content.
+ * @returns content whose text blocks carry no trailing file references.
+ */
+function stripFileRefs(content: MessageContent): MessageContent {
+  return content.map((block) => {
+    if (block.type !== 'text') return block
+    const lines = block.text.split('\n')
+    while (lines.length > 0 && FILE_REF_LINE_RE.test(lines[lines.length - 1] as string)) lines.pop()
+    return { ...block, text: lines.join('\n') }
+  })
+}
+
 const turnOutlineEntriesSchema: ZodType<readonly TurnOutlineEntry[]> = z.array(z.object({
   turn: z.number().int().nonnegative(),
   seq: z.number().int().nonnegative(),
@@ -110,7 +130,7 @@ export const turnOutlineProjectionDefinition = {
         if (event.data.source.kind !== 'user') return state
         const last = state.turns.at(-1)
         if (last === undefined || last.prompt !== '') return state
-        const prompt = preview(event.data.content, PROMPT_PREVIEW_LIMIT)
+        const prompt = preview(stripFileRefs(event.data.content), PROMPT_PREVIEW_LIMIT)
         if (prompt === '') return state
         return { turns: [...state.turns.slice(0, -1), { ...last, prompt }], draft: state.draft }
       }

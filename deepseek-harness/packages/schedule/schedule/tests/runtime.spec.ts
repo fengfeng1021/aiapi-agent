@@ -9,7 +9,9 @@ import {
   createAfterScheduleRecord,
   createEveryScheduleRecord,
   foldScheduleEvents,
+  scheduleCreateVersion,
 } from '../src/domain.ts'
+import type { ScheduleMetadata } from '../src/types.ts'
 import { MAX_TIMER_DELAY_MS, ScheduleRuntime } from '../src/runtime.ts'
 
 const contexts: Context[] = []
@@ -116,9 +118,14 @@ function appendAfter(
   afterSeconds: number,
   createdAt = Date.now(),
   prompt = 'check logs',
+  meta?: ScheduleMetadata,
 ): void {
-  const record = createAfterScheduleRecord(ScheduleId(id), prompt, afterSeconds, createdAt)
-  test.agent.session.append('schedule/change', { version: 1, operation: 'create', schedule: record })
+  const record = createAfterScheduleRecord(ScheduleId(id), prompt, afterSeconds, createdAt, meta)
+  test.agent.session.append('schedule/change', {
+    version: scheduleCreateVersion(record),
+    operation: 'create',
+    schedule: record,
+  })
 }
 
 function appendEvery(
@@ -210,6 +217,31 @@ describe('Schedule timer and admission runtime', () => {
     runtime.requestDrive()
     await settle()
     expect(test.followed).toHaveLength(1)
+    await runtime.dispose()
+  })
+
+  it('holds paused reminders without dispatching while live ones fire', async () => {
+    const test = await harness()
+    appendAfter(test, 'schedule-held', 30, Date.now(), 'held reminder', { paused: true })
+    appendAfter(test, 'schedule-live', 30, Date.now(), 'live reminder')
+    const runtime = runtimeFor(test)
+    runtime.start()
+    await settle()
+
+    vi.setSystemTime(new Date('2026-08-05T12:02:00.000Z'))
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settle()
+    expect(test.followed).toHaveLength(1)
+    const first = test.followed[0]?.content[0]
+    if (first?.type !== 'text') throw new Error('expected text reminder content')
+    expect(first.text).toContain('schedule-live')
+    const dispatched: unknown[] = []
+    for (const event of test.agent.session.events) {
+      if (event.type === 'schedule/change' && event.data.operation === 'dispatch') {
+        dispatched.push(event.data.id)
+      }
+    }
+    expect(dispatched).toEqual(['schedule-live'])
     await runtime.dispose()
   })
 

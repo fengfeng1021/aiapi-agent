@@ -49,8 +49,9 @@ export interface IWorkspaces {
   /**
    * Delete a Workspace registration without deleting Sessions or files.
    * @param workspaceId - target Workspace.
+   * @param cascadeSessions - also permanently delete every owned Session.
    */
-  delete(workspaceId: WorkspaceId): Promise<void>
+  delete(workspaceId: WorkspaceId, cascadeSessions?: boolean): Promise<void>
   /**
    * Move a Workspace within the Host registry order.
    * @param workspaceId - Workspace to move.
@@ -62,6 +63,11 @@ export interface IWorkspaces {
    * @param sessionId - Session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Permanently delete a Session, durable log included.
+   * @param sessionId - Session to delete.
+   */
+  deleteSession(sessionId: SessionId): Promise<void>
   /**
    * Move a Session within one Workspace account.
    * @param workspaceId - owning Workspace.
@@ -101,8 +107,8 @@ export class WorkspaceController extends Service implements IWorkspaces {
     return result.value.workspace
   }
 
-  async delete(workspaceId: WorkspaceId): Promise<void> {
-    const result = await this.model.delete(workspaceId)
+  async delete(workspaceId: WorkspaceId, cascadeSessions?: boolean): Promise<void> {
+    const result = await this.model.delete(workspaceId, cascadeSessions)
     if (!result.ok) throw commandError('delete', result.error)
   }
 
@@ -114,6 +120,11 @@ export class WorkspaceController extends Service implements IWorkspaces {
   async archiveSession(sessionId: SessionId): Promise<void> {
     const result = await this.model.archiveSession(sessionId)
     if (!result.ok) throw commandError('session archive', result.error)
+  }
+
+  async deleteSession(sessionId: SessionId): Promise<void> {
+    const result = await this.model.deleteSession(sessionId)
+    if (!result.ok) throw commandError('session delete', result.error)
   }
 
   async insertSessionBefore(

@@ -64,6 +64,13 @@ describe('SessionController facade', () => {
     await expect(controller.resolveAgent(sessionId)).resolves.toEqual({ agent })
     await expect(controller.inspect(sessionId)).resolves.toEqual({ meta: header, events })
     expect(inspect).toHaveBeenCalledOnce()
+
+    const closeSession = vi.spyOn(
+      (controller as unknown as { agents: ApiSessionAgentController }).agents,
+      'closeSession',
+    ).mockResolvedValue(undefined)
+    await controller.closeSession(sessionId)
+    expect(closeSession).toHaveBeenCalledWith(sessionId)
     ctx.emit('agent/status', { agent, status: 'running' })
     ctx.emit('agent/error', { agent, turn: 1, step: 0, error: new Error('fixture failure') })
     session.append('user/message', createUserMessage({

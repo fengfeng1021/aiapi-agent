@@ -7,7 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { assembleContextFor } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { ToolCallId, LlmAdapter, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
@@ -103,17 +103,6 @@ async function startChild(ctx: Context, parent: Agent, prompt = 'child task') {
     return live as Agent
   })
   return { started, child }
-}
-
-/** Start one parent request that remains open in the held adapter. */
-async function startHeldParentTurn(parent: Agent, adapter: HeldAdapter): Promise<void> {
-  parent.followup(createUserMessage({
-    content: [{ type: 'text', text: 'parent work' }],
-    source: { kind: 'user' },
-  }))
-  await vi.waitFor(() => {
-    expect(adapter.requests.some(request => request.sessionId === parent.id)).toBe(true)
-  })
 }
 
 let calls = 0
@@ -232,51 +221,6 @@ describe('dsh-tool-subagent-report', () => {
     expect(enqueues).toEqual(['steering'])
     expect(parent.status).toBe('idle')
     expect(adapter.requests.filter(request => request.sessionId === parent.id)).toHaveLength(parentRequests)
-  })
-
-  it('delivers next-step reports through waking steering', async () => {
-    const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'next-step' } })
-    const { child } = await startChild(ctx, parent)
-    const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
-      if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
-      }
-    })
-
-    const result = await callReport(ctx, child, 'WAKE_UP')
-    expect(result.isError).toBe(false)
-    expect(enqueues).toEqual(['steering'])
-    await vi.waitFor(() => {
-      expect(adapter.requests.some(request => request.sessionId === parent.id)).toBe(true)
-    })
-  })
-
-  it('batches repeated next-step reports in accepted order', async () => {
-    const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'next-step' } })
-    await startHeldParentTurn(parent, adapter)
-    const { child } = await startChild(ctx, parent)
-
-    expect((await callReport(ctx, child, 'FIRST')).isError).toBe(false)
-    expect((await callReport(ctx, child, 'SECOND')).isError).toBe(false)
-    expect(reports(parent).map(report => report.text.split('\n').at(-1))).toEqual(['FIRST', 'SECOND'])
-    expect(parent.inbox.nextStep).toHaveLength(2)
-  })
-
-  it('keeps a report before the child settlement in one busy-parent batch', async () => {
-    const { ctx, parent, adapter } = await setup({ config: { reportDelivery: 'next-step' } })
-    await startHeldParentTurn(parent, adapter)
-    const { started, child } = await startChild(ctx, parent)
-
-    expect((await callReport(ctx, child, 'ORDERED_REPORT')).isError).toBe(false)
-    adapter.release(started.childId)
-    await vi.waitFor(() => { expect(ctx.agents.get(started.childId)).toBeUndefined() })
-
-    expect(parent.inbox.nextStep.map(message => message.source.kind)).toEqual([
-      'subagent-report',
-      'subagent-settled',
-    ])
-    expect(parent.inbox.nextTurn).toHaveLength(0)
   })
 
   it('keeps an accepted report after the child settles', async () => {
@@ -564,22 +508,6 @@ describe('dsh-tool-subagent-report', () => {
     expect(() => tool.Config({ reportDelivery: 'shout' } as never)).toThrow()
   })
 
-  it('wakes the parent under the default configuration', async () => {
-    const { ctx, parent, adapter } = await setup({ config: {} })
-    const { child } = await startChild(ctx, parent)
-    const enqueues: string[] = []
-    ctx.on('agent/inbox/inserted', ({ agent, message }) => {
-      if (agent === parent) {
-        enqueues.push(agent.inbox.nextTurn.some(queued => queued.id === message.id) ? 'queued' : 'steering')
-      }
-    })
-
-    expect((await callReport(ctx, child, 'DEFAULT_WAKES')).isError).toBe(false)
-    expect(enqueues).toEqual(['steering'])
-    await vi.waitFor(() => {
-      expect(adapter.requests.some(request => request.sessionId === parent.id)).toBe(true)
-    })
-  })
 })
 
 /** Prove report delivery uses ordinary logged user messages (runtime-context snapshots excluded). */

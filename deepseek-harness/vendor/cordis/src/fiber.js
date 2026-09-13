@@ -75,6 +75,23 @@ function emitPluginDisposed(context, fiber) {
         }
     }
 }
+/**
+ * Lifecycle state for one plugin fiber.
+ *
+ * `PENDING` — waiting for required services; `LOADING` — the plugin callback
+ * is running; `ACTIVE` — loaded and providing; `FAILED` — the callback or its
+ * config threw; `UNLOADING` — disposers are running; `DISPOSED` — the fiber
+ * was removed and cannot restart.
+ */
+export var FiberState;
+(function (FiberState) {
+    FiberState[FiberState["PENDING"] = 0] = "PENDING";
+    FiberState[FiberState["LOADING"] = 1] = "LOADING";
+    FiberState[FiberState["ACTIVE"] = 2] = "ACTIVE";
+    FiberState[FiberState["FAILED"] = 3] = "FAILED";
+    FiberState[FiberState["DISPOSED"] = 4] = "DISPOSED";
+    FiberState[FiberState["UNLOADING"] = 5] = "UNLOADING";
+})(FiberState || (FiberState = {}));
 /** Framework error with a stable machine-readable code. */
 export class CordisError extends Error {
     code;
@@ -113,7 +130,7 @@ export class Fiber {
     /** The raw plugin config, re-resolved before each activation. */
     _config;
     /** Current lifecycle state; transitions emit `internal/status`. */
-    state = 0 /* FiberState.PENDING */;
+    state = FiberState.PENDING;
     /** Dispose this fiber: unload the plugin, then settle once cleanup finished. */
     dispose;
     /** Snapshot of required service implementations while loaded; `undefined` otherwise. */
@@ -194,7 +211,7 @@ export class Fiber {
                     if (!this.inertia) {
                         this._updateState(() => {
                             this.inertia = this._unload();
-                            return 5 /* FiberState.UNLOADING */;
+                            return FiberState.UNLOADING;
                         });
                     }
                     // `this.inertia` itself should never reject — both `_reload` and
@@ -223,7 +240,7 @@ export class Fiber {
             // may also extend `inject` in that notification, so resolve dependencies
             // only after publication. A reentrant parent unload makes the child
             // disposer responsible for draining any PENDING effects instead.
-            if (this.uid !== null && parent.fiber.state !== 5 /* FiberState.UNLOADING */) {
+            if (this.uid !== null && parent.fiber.state !== FiberState.UNLOADING) {
                 for (const name of Object.keys(this.inject)) {
                     this._checkImpl(name);
                 }
@@ -233,7 +250,7 @@ export class Fiber {
         else {
             this.uid = 0;
             this.ctx = this.context = parent;
-            this.state = 2 /* FiberState.ACTIVE */;
+            this.state = FiberState.ACTIVE;
             this.store = Object.create(null);
             this._runner = {
                 epoch: '',
@@ -322,7 +339,7 @@ export class Fiber {
     }
     effect(execute, label = 'anonymous') {
         this.assertActive();
-        if (this.state === 5 /* FiberState.UNLOADING */) {
+        if (this.state === FiberState.UNLOADING) {
             throw new CordisError('INACTIVE_EFFECT');
         }
         const disposables = [];
@@ -473,12 +490,12 @@ export class Fiber {
     }
     _getState() {
         if (this.uid === null)
-            return 4 /* FiberState.DISPOSED */;
+            return FiberState.DISPOSED;
         if (this._error)
-            return 3 /* FiberState.FAILED */;
+            return FiberState.FAILED;
         if (this._runner.epoch !== INACTIVE)
-            return 2 /* FiberState.ACTIVE */;
-        return 0 /* FiberState.PENDING */;
+            return FiberState.ACTIVE;
+        return FiberState.PENDING;
     }
     _updateState(callback) {
         const oldState = this.state;
@@ -488,7 +505,7 @@ export class Fiber {
         // FIXME internal/fiber-info
         this.context.emit('internal/status', this, oldState);
         // only notify changes between ACTIVE and NON-ACTIVE states
-        if (oldState !== 2 /* FiberState.ACTIVE */ && this.state !== 2 /* FiberState.ACTIVE */)
+        if (oldState !== FiberState.ACTIVE && this.state !== FiberState.ACTIVE)
             return;
         for (const key of Reflect.ownKeys(this.ctx.reflect.store)) {
             const impl = this.ctx.reflect.store[key];
@@ -535,11 +552,11 @@ export class Fiber {
         this._updateState(() => {
             if (epoch !== INACTIVE && oldEpoch === INACTIVE) {
                 this.inertia = this._reload();
-                return 1 /* FiberState.LOADING */;
+                return FiberState.LOADING;
             }
             else {
                 this.inertia = this._unload();
-                return 5 /* FiberState.UNLOADING */;
+                return FiberState.UNLOADING;
             }
         });
     }
@@ -573,7 +590,7 @@ export class Fiber {
             }
             else {
                 this.inertia = this._unload();
-                return 5 /* FiberState.UNLOADING */;
+                return FiberState.UNLOADING;
             }
         });
     }
@@ -597,7 +614,7 @@ export class Fiber {
             }
             else {
                 this.inertia = this._reload();
-                return 1 /* FiberState.LOADING */;
+                return FiberState.LOADING;
             }
         });
     }
@@ -641,7 +658,7 @@ export class Fiber {
     update(config, noSave = false) {
         this.assertActive();
         this._config = config;
-        if (this.state !== 2 /* FiberState.ACTIVE */) {
+        if (this.state !== FiberState.ACTIVE) {
             // Config resolution may access injected services, so defer it until the
             // fiber can activate.
             this._error = undefined;

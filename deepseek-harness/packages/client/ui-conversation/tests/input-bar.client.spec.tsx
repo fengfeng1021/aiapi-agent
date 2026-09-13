@@ -30,6 +30,11 @@ import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import { zh } from '../src/client/locales.ts'
+import { listen as tauriListen } from '@tauri-apps/api/event'
+import { readFile as tauriReadFile } from '@tauri-apps/plugin-fs'
+
+vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn() }))
+vi.mock('@tauri-apps/plugin-fs', () => ({ readFile: vi.fn() }))
 
 afterEach(cleanup)
 
@@ -87,6 +92,7 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
   addImages?: (files: readonly File[]) => string | null
+  addFiles?: (paths: readonly string[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -170,6 +176,7 @@ function bench(over?: BenchOptions) {
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
+    addFiles: over?.addFiles ?? (() => null),
     removeImage,
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
@@ -302,7 +309,7 @@ describe('image draft rail', () => {
   })
 
   it('announces the format problem before any limit when the batch holds a non-image', () => {
-    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    const addImages = vi.fn(() => '仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件')
     const result = bench({
       addImages,
       imageLimits: {
@@ -321,7 +328,7 @@ describe('image draft rail', () => {
     ]
     act(() => { attachmentOwner(result.slotCalls).onAddImages(files) })
     expect(addImages).toHaveBeenCalledWith(files)
-    expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    expect(result.view.getByRole('alert').textContent).toContain('仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件')
   })
 
   it('projects display-ready limits into the attachment slot', () => {
@@ -416,26 +423,180 @@ describe('image draft rail', () => {
   it('announces an image-intake rejection as a fading toast, repeatable for the same reason', () => {
     vi.useFakeTimers()
     try {
-      const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      const addImages = vi.fn(() => '仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件')
       const { view, textarea } = bench({ addImages })
       const paste = () => {
         fireEvent.paste(textarea, {
           clipboardData: {
-            items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'note.txt', { type: 'text/plain' }) }],
+            items: [{ kind: 'file', type: 'application/pdf', getAsFile: () => new File(['x'], 'doc.pdf', { type: 'application/pdf' }) }],
             getData: () => '',
           },
         })
       }
       paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      expect(view.getByRole('alert').textContent).toContain('仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件')
       act(() => { vi.advanceTimersByTime(4000) })
       expect(view.queryByRole('alert')).toBeNull()
       // The identical rejection re-announces: the toast is keyed per show.
       paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      expect(view.getByRole('alert').textContent).toContain('仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件')
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('inlines a pasted plain-text file as a fenced block instead of rejecting it', async () => {
+    const addImages = vi.fn(() => null)
+    const { view, textarea, shell } = bench({ addImages })
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['hello txt'], 'note.txt', { type: 'text/plain' }) }],
+        getData: () => '',
+      },
+    })
+    await vi.waitFor(() => { expect(shell.snapshot.draft).toContain('【附加文件：note.txt】') })
+    expect(shell.snapshot.draft).toContain('hello txt')
+    expect(shell.snapshot.draft).toContain('【note.txt 结束】')
+    expect(view.queryByRole('alert')).toBeNull()
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('routes a mixed drop batch by kind: images attach, text inlines, binaries reject', async () => {
+    const binaryRejection = '仅支持图片（PNG、JPG、WebP、GIF）与纯文本文件'
+    const addImages = vi.fn((files: readonly File[]) => (
+      files.every(file => file.type === 'image/png') ? null : binaryRejection
+    ))
+    const imageLimits = {
+      maxImageBytes: 1024 * 1024,
+      maxImagesPerMessage: 5,
+      maxMessageImageBytes: 10 * 1024 * 1024,
+      maxImagePixels: 40_000_000,
+      maxImageDimension: 2000,
+      mediaTypes: ['image/png'] as const,
+    }
+    const result = bench({ addImages, imageLimits })
+    const png = new File([Uint8Array.of(9)], 'a.png', { type: 'image/png' })
+    const md = new File(['# title'], 'doc.md', { type: '' })
+    const pdf = new File([Uint8Array.of(7)], 'doc.pdf', { type: 'application/pdf' })
+    act(() => { attachmentOwner(result.slotCalls).onAddImages([png, md, pdf]) })
+    expect(addImages).toHaveBeenCalledTimes(2)
+    expect(addImages).toHaveBeenNthCalledWith(1, [png])
+    expect(addImages).toHaveBeenNthCalledWith(2, [pdf])
+    await vi.waitFor(() => { expect(result.shell.snapshot.draft).toContain('# title') })
+    expect(result.shell.snapshot.draft).toContain('【附加文件：doc.md】')
+    expect(result.view.getByRole('alert').textContent).toContain(binaryRejection)
+  })
+
+  it('truncates an oversized text file with an explicit marker', async () => {
+    const addImages = vi.fn(() => null)
+    const result = bench({ addImages })
+    const big = new File(['y'.repeat(70 * 1024)], 'big.txt', { type: 'text/plain' })
+    act(() => { attachmentOwner(result.slotCalls).onAddImages([big]) })
+    await vi.waitFor(() => { expect(result.shell.snapshot.draft).toContain('【big.txt 结束，仅保留前64KB】') })
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('inlines application/json and dotfiles by extension and exact name', async () => {
+    const addImages = vi.fn(() => null)
+    const result = bench({ addImages })
+    const json = new File(['{"a":1}'], 'data.json', { type: 'application/json' })
+    const ignore = new File(['*.log'], '.gitignore', { type: '' })
+    act(() => { attachmentOwner(result.slotCalls).onAddImages([json, ignore]) })
+    await vi.waitFor(() => { expect(result.shell.snapshot.draft).toContain('【附加文件：data.json】') })
+    expect(result.shell.snapshot.draft).toContain('{"a":1}')
+    expect(result.shell.snapshot.draft).toContain('【附加文件：.gitignore】')
+    expect(result.shell.snapshot.draft).toContain('*.log')
+    expect(result.view.queryByRole('alert')).toBeNull()
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('announces an unreadable text file without touching the draft', async () => {
+    const addImages = vi.fn(() => null)
+    const result = bench({ addImages })
+    const bad = new File(['x'], 'bad.txt', { type: 'text/plain' })
+    vi.spyOn(bad, 'text').mockRejectedValue(new Error('locked'))
+    act(() => { attachmentOwner(result.slotCalls).onAddImages([bad]) })
+    await vi.waitFor(() => {
+      expect(result.view.getByRole('alert').textContent).toContain('读取文件 bad.txt 失败')
+    })
+    expect(result.shell.snapshot.draft).toBe('')
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('routes a Tauri drop by kind: images attach with vision, the rest draft file references', async () => {
+    let dropHandler!: (event: { payload: { paths: string[] } }) => void
+    let dragHandlers: { enter: () => void; leave: () => void } | undefined
+    vi.mocked(tauriListen).mockImplementation((async (event: string, handler: never) => {
+      if (event === 'tauri://drag-drop') dropHandler = handler
+      if (event === 'tauri://drag-enter') dragHandlers = { ...dragHandlers, enter: handler } as never
+      if (event === 'tauri://drag-leave') dragHandlers = { ...dragHandlers, leave: handler } as never
+      return () => {}
+    }) as never)
+    vi.mocked(tauriReadFile).mockResolvedValue(new Uint8Array([9, 9]))
+    const addImages = vi.fn<(files: readonly File[]) => null>(() => null)
+    const addFiles = vi.fn<(paths: readonly string[]) => null>(() => null)
+    const result = bench({ addImages, addFiles })
+    await act(async () => {})
+    // Hover raises the invitation through the slot owner props.
+    act(() => { dragHandlers?.enter() })
+    expect(attachmentOwner(result.slotCalls).dropActive).toBe(true)
+    act(() => { dragHandlers?.leave() })
+    expect(attachmentOwner(result.slotCalls).dropActive).toBe(false)
+    await act(async () => {
+      dropHandler({ payload: { paths: ['C:\\pics\\a.png', 'D:\\docs\\b.pdf'] } })
+    })
+    await vi.waitFor(() => { expect(addImages).toHaveBeenCalledTimes(1) })
+    const attached = addImages.mock.calls.flatMap(call => call[0])
+    expect(attached).toHaveLength(1)
+    expect(attached[0]).toMatchObject({ name: 'a.png', type: 'image/png' })
+    await vi.waitFor(() => { expect(addFiles).toHaveBeenCalledWith(['D:\\docs\\b.pdf']) })
+    expect(attachmentOwner(result.slotCalls).dropActive).toBe(false)
+    expect(result.view.queryByRole('alert')).toBeNull()
+  })
+
+  it('degrades an unreadable dropped image to a file reference', async () => {
+    let dropHandler!: (event: { payload: { paths: string[] } }) => void
+    vi.mocked(tauriListen).mockImplementation((async (_event: never, handler: never) => {
+      dropHandler = handler
+      return () => {}
+    }) as never)
+    vi.mocked(tauriReadFile).mockRejectedValue(new Error('denied'))
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn(() => null)
+    bench({ addImages, addFiles })
+    await act(async () => {})
+    await act(async () => {
+      dropHandler({ payload: { paths: ['C:\\pics\\locked.png'] } })
+    })
+    await vi.waitFor(() => { expect(addFiles).toHaveBeenCalledWith(['C:\\pics\\locked.png']) })
+    expect(addImages).not.toHaveBeenCalled()
+  })
+
+  it('ignores Tauri drops while the composer is locked', async () => {
+    let dropHandler!: (event: { payload: { paths: string[] } }) => void
+    vi.mocked(tauriListen).mockImplementation((async (_event: never, handler: never) => {
+      dropHandler = handler
+      return () => {}
+    }) as never)
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn(() => null)
+    const result = bench({ addImages, addFiles, inert: true })
+    await act(async () => {})
+    await act(async () => {
+      dropHandler({ payload: { paths: ['C:\\pics\\a.png', 'D:\\b.pdf'] } })
+    })
+    expect(addImages).not.toHaveBeenCalled()
+    expect(addFiles).not.toHaveBeenCalled()
+    expect(result.shell.snapshot.draft).toBe('')
+  })
+
+  it('unsubscribes every Tauri bridge listener on unmount', async () => {
+    const unlisten = vi.fn()
+    vi.mocked(tauriListen).mockImplementation((async () => unlisten) as never)
+    const result = bench({ addImages: vi.fn(() => null) })
+    await act(async () => {})
+    result.view.unmount()
+    expect(unlisten).toHaveBeenCalledTimes(4)
   })
 
   it('announces a rejected attachment-slot intake through the same toast', () => {
@@ -457,9 +618,9 @@ describe('Enter semantics', () => {
   })
 
   it('keeps the owning placeholder or ordinary guidance when whole-queue steering is unavailable', () => {
-    expect(bench({ running: true }).placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
-    expect(bench({ queue: [row('q-1')] }).placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
-    expect(bench({ running: true, queue: [row('q-1')], draft: '消息' }).placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
+    expect(bench({ running: true }).placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
+    expect(bench({ queue: [row('q-1')] }).placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
+    expect(bench({ running: true, queue: [row('q-1')], draft: '消息' }).placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
     expect(bench({
       running: true,
       queue: [row('q-1')],
@@ -467,7 +628,7 @@ describe('Enter semantics', () => {
         address: { parentSessionId: 'parent' as SessionId, childSessionId: SID, mode: 'continuable' },
         parentAvailable: true,
       },
-    }).placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
+    }).placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
     expect(bench({
       running: true,
       queue: [row('q-1')],
@@ -479,7 +640,7 @@ describe('Enter semantics', () => {
       running: true,
       queue: [row('q-1')],
       commandMenuOpen: true,
-    }).placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
+    }).placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
     // The steer hint intentionally outranks the plan placeholder: while it
     // shows, the whole-queue gesture is genuinely available in plan mode.
     expect(bench({
@@ -975,7 +1136,7 @@ describe('running and lock semantics', () => {
   it('disabled state shows the unavailable placeholder; custom placeholder wins', () => {
     expect(bench({ disabled: true }).placeholder).toBe('会话不可用')
     const live = bench()
-    expect(live.placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
+    expect(live.placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
     const custom = bench({ placeholder: 'Custom placeholder' })
     expect(custom.placeholder).toBe('Custom placeholder')
   })
@@ -1022,7 +1183,7 @@ describe('running and lock semantics', () => {
     expect(entering.placeholder).toBe('描述你的任务以生成计划')
     // Pending exit: target is default again.
     const leaving = bench({ plan: { active: true, pending: true } })
-    expect(leaving.placeholder).toBe('发消息或做任务… / 调用指令 @ 文件或对话')
+    expect(leaving.placeholder).toBe('輸入指令或指派任務… / 調用指令 @ 文件或會話')
     // Owner placeholder outranks the plan swap.
     const custom = bench({ plan: { active: true, pending: false }, placeholder: 'Custom placeholder' })
     expect(custom.placeholder).toBe('Custom placeholder')

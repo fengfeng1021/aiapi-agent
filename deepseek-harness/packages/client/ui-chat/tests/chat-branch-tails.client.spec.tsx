@@ -141,6 +141,64 @@ describe('MessageItem arms', () => {
     expect(view.container.textContent).toContain('README.md, please.')
   })
 
+  it('lifts dropped-file references out of the message into their own bubbles', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'user',
+        seq: 1,
+        time: 1_000,
+        content: [{
+          type: 'text',
+          text: '檔名是什麼\n@C:\\dropped\\streambot-diagnostics-2026-09-10.json\n@D:\\logs\\second.json',
+        }] as never,
+        source: null,
+      }} />,
+    )
+    expect(view.getByText('檔名是什麼')).toBeTruthy()
+    expect(view.container.querySelectorAll('[data-ref-chip]')).toHaveLength(0)
+    const files = [...view.container.querySelectorAll('[data-user-file]')]
+    expect(files.map(file => file.textContent)).toEqual([
+      'streambot-diagnostics-2026-09-10.json',
+      'second.json',
+    ])
+    expect(files.every(file => file.querySelector('svg') !== null)).toBe(true)
+    expect(files[0]?.getAttribute('title')).toBe('C:\\dropped\\streambot-diagnostics-2026-09-10.json')
+    // Attachments stack above the message text, where the images also live.
+    const stack = files[0]?.parentElement
+    expect([...(stack?.children ?? [])].map(child => child.hasAttribute('data-user-file') ? 'file' : 'text'))
+      .toEqual(['file', 'file', 'text'])
+  })
+
+  it('renders only file bubbles when the message carries no prose', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'user',
+        seq: 1,
+        time: 1_000,
+        content: [{ type: 'text', text: '@C:\\only\\one.json' }] as never,
+        source: null,
+      }} />,
+    )
+    const files = [...view.container.querySelectorAll('[data-user-file]')]
+    expect(files.map(file => file.textContent)).toEqual(['one.json'])
+    // The stack holds the file bubble alone: no prose means no text bubble.
+    expect(files[0]?.parentElement?.childElementCount).toBe(1)
+  })
+
+  it('keeps a typed relative mention inline in the bubble', () => {
+    const view = render(
+      <MessageItem t={t} node={{
+        kind: 'user',
+        seq: 1,
+        time: 1_000,
+        content: [{ type: 'text', text: '看一下 @src/main.ts 好嗎' }] as never,
+        source: null,
+      }} />,
+    )
+    expect(view.container.querySelectorAll('[data-user-file]')).toHaveLength(0)
+    expect(view.container.querySelector('[data-ref-chip="file"]')?.textContent).toBe('main.ts')
+  })
+
   it('user bubbles expose clock / copy and neither branch nor edit; copy writes the text', () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {

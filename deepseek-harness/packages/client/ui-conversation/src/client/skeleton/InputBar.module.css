@@ -40,19 +40,14 @@
   width: 100%;
   max-width: var(--dsh-composer-card-max-width);
   padding: 12px 16px 12px;
-  /* Apple Liquid Glass (Light Mode): Crystal-clear translucent glass with crisp edge contrast */
+  /* Solid raised surface: no translucency by product decision. */
   border-radius: 26px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0.3) 100%);
-  backdrop-filter: blur(32px) saturate(190%);
-  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  background: var(--dsw-alias-bg-layer-1);
   border: 1px solid rgba(0, 0, 0, 0.08);
-  border-top: 1.5px solid #ffffff;
   border-bottom: 1px solid rgba(0, 0, 0, 0.12);
   box-shadow:
     0 18px 44px -8px rgba(0, 0, 0, 0.1),
-    0 4px 14px -2px rgba(0, 0, 0, 0.04),
-    inset 0 1.5px 2px 0 #ffffff,
-    inset 0 -1px 2px 0 rgba(255, 255, 255, 0.4);
+    0 4px 14px -2px rgba(0, 0, 0, 0.04);
   transition: all 220ms cubic-bezier(0.16, 1, 0.3, 1);
   font-size: var(--dsh-content-font-size, 14px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
@@ -62,37 +57,28 @@
 
 .card:focus-within {
   border-color: rgba(0, 0, 0, 0.15);
-  border-top-color: #ffffff;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.8) 0%, rgba(255, 255, 255, 0.45) 100%);
+  background: var(--dsw-alias-bg-layer-1);
   box-shadow:
     0 24px 56px -8px rgba(0, 0, 0, 0.14),
-    0 0 0 1px rgba(255, 255, 255, 0.8),
-    inset 0 1.5px 2px 0 #ffffff;
+    0 0 0 1px rgba(0, 0, 0, 0.06);
 }
 
 :global(body[data-ds-dark-theme]) .card {
   border-radius: 26px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-top: 1.5px solid rgba(255, 255, 255, 0.4);
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(18, 18, 22, 0.45);
-  backdrop-filter: blur(32px) saturate(190%);
-  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  background: var(--dsw-alias-bg-layer-1);
   box-shadow:
     0 28px 70px -16px rgba(0, 0, 0, 0.85),
-    0 8px 24px -4px rgba(0, 0, 0, 0.4),
-    inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.22),
-    inset 0 -1px 2px 0 rgba(0, 0, 0, 0.4);
+    0 8px 24px -4px rgba(0, 0, 0, 0.4);
 }
 
 :global(body[data-ds-dark-theme]) .card:focus-within {
   border-color: rgba(255, 255, 255, 0.25);
-  border-top-color: rgba(255, 255, 255, 0.55);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(24, 24, 30, 0.55);
+  background: var(--dsw-alias-bg-layer-1);
   box-shadow:
     0 36px 80px -16px rgba(0, 0, 0, 0.95),
-    0 0 0 1px rgba(255, 255, 255, 0.15),
-    inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.35);
+    0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
 /* Workspace trigger state: smooth frosted glass affordance */
@@ -102,22 +88,19 @@
 }
 
 .cardWorkspaceTrigger:hover {
-  border-color: rgba(255, 255, 255, 0.95);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.65) 0%, rgba(255, 255, 255, 0.3) 100%);
+  border-color: rgba(0, 0, 0, 0.16);
+  background: var(--dsw-alias-bg-layer-1);
   box-shadow:
     0 26px 56px -10px rgba(0, 0, 0, 0.09),
-    0 6px 18px -2px rgba(0, 0, 0, 0.03),
-    inset 0 1.5px 2px 0 #ffffff;
+    0 6px 18px -2px rgba(0, 0, 0, 0.03);
   transform: translateY(-1px);
 }
 
 :global(body[data-ds-dark-theme]) .cardWorkspaceTrigger:hover {
   border-color: rgba(255, 255, 255, 0.25);
-  border-top-color: rgba(255, 255, 255, 0.5);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(22, 22, 28, 0.55);
+  background: var(--dsw-alias-bg-layer-1);
   box-shadow:
-    0 28px 68px -14px rgba(0, 0, 0, 0.8),
-    inset 0 1px 2px 0 rgba(255, 255, 255, 0.3);
+    0 28px 68px -14px rgba(0, 0, 0, 0.8);
   transform: translateY(-1px);
 }
 

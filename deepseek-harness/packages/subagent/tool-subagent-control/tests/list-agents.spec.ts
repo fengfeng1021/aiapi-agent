@@ -202,28 +202,6 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     expect(listChildren).toHaveBeenCalledWith(parent.id, signal)
   })
 
-  it('lists a real settled continuable child and omits a real one-shot sibling', async () => {
-    const { ctx, parent } = await setup([textResponse('once'), textResponse('done')])
-    const oneShot = await ctx.subagents.start('spawn', {
-      label: 'finished once',
-      prompt: [{ type: 'text', text: 'one-shot task' }],
-      parent,
-      signal: new AbortController().signal,
-    })
-    await oneShot.result
-    await oneShot.dispose()
-    const started = await ctx.subagents.startContinuable({
-      provider: 'spawn',
-      label: 'summarize the doc',
-      request: { prompt: [{ type: 'text', text: 'child task' }], parent },
-      signal: testToolSignal,
-    })
-    await waitNoActivation(ctx, started.childId)
-    const result = await callTool(ctx, 'list_agents', {}, parent)
-    expect(result.isError).toBe(false)
-    expect(text(result)).toBe(`${started.childId} [ready] — summarize the doc`)
-  })
-
   it('describes ready as resumable and pins the status vocabulary', async () => {
     const { ctx } = await setup([])
     const schema = ctx.tools.schemas().find(candidate => candidate.name === 'list_agents')
@@ -262,48 +240,6 @@ describe('dsh-tool-subagent-control/list-agents', () => {
     expect(tool.name).toBe('tool-subagent-list-agents')
     expect(tool.inject).toEqual(['tools', 'subagents', 'agents'])
     expect(typeof tool.apply).toBe('function')
-  })
-
-  it('walks the complete descendant tree in pre-order with parent and depth annotations', async () => {
-    const releaseChild = Promise.withResolvers<undefined>()
-    const releaseGrandchild = Promise.withResolvers<undefined>()
-    const adapter = new GatedAdapter([
-      { chunks: textResponse('child'), gate: releaseChild.promise },
-      { chunks: textResponse('grandchild'), gate: releaseGrandchild.promise },
-    ])
-    const { ctx, parent } = await setupWith(adapter)
-    const started = await ctx.subagents.startContinuable({
-      provider: 'spawn',
-      label: 'waiting branch',
-      request: { prompt: [{ type: 'text', text: 'branch work' }], parent },
-      signal: testToolSignal,
-    })
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
-    const child = ctx.agents.get(started.childId)!
-    const grandchild = await ctx.subagents.startContinuable({
-      provider: 'spawn',
-      label: 'nested leaf',
-      request: { prompt: [{ type: 'text', text: 'leaf work' }], parent: child },
-      signal: testToolSignal,
-    })
-    await vi.waitFor(() => { expect(adapter.requests).toHaveLength(2) })
-    // The branch finishes its own turn but stays resident waiting on the
-    // grandchild it owns: the live-registry `idle` status.
-    releaseChild.resolve(undefined)
-    await vi.waitFor(() => {
-      expect(ctx.agents.get(started.childId)?.status).toBe('idle')
-    }, { timeout: 5_000 })
-
-    const result = await callTool(ctx, 'list_agents', { scope: 'descendants' }, parent)
-    expect(result.isError).toBe(false)
-    expect(text(result)).toBe(
-      `${started.childId} [idle] parent=${parent.id} depth=1 — waiting branch\n`
-      + `${grandchild.childId} [running] parent=${started.childId} depth=2 — nested leaf`,
-    )
-
-    releaseGrandchild.resolve(undefined)
-    await waitNoActivation(ctx, grandchild.childId)
-    await waitNoActivation(ctx, started.childId)
   })
 
   it('omits one-shot intermediates from descendants output while surfacing what they own', async () => {

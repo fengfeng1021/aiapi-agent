@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Aiapi Agent Desktop (based on DeepSeek Harness) - Tauri carrier",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "license": "MIT",
   "private": true,
   "type": "module",

@@ -49,7 +49,7 @@ export function dropOverlayLabels(
 }
 
 /**
- * Resolve draft-image rail strings from the conversation namespace.
+ * Resolve draft-attachment rail strings from the conversation namespace.
  * @param t - conversation namespace translator.
  * @returns translated attachment-rail labels.
  */
@@ -60,4 +60,17 @@ export function attachmentRailLabels(t: TranslateNS<'conversation'>): Attachment
     scrollLeft: t('image.scrollLeft'),
     scrollRight: t('image.scrollRight'),
   }
+}
+
+/**
+ * Chip type label for one file name: the uppercased extension, or the
+ * locale's fallback when the name carries none.
+ * @param name - display name of the file.
+ * @param fallback - translated label for extensionless names.
+ * @returns the type label shown on the card.
+ */
+export function fileTypeLabel(name: string, fallback: string): string {
+  const dot = name.lastIndexOf('.')
+  if (dot <= 0 || dot === name.length - 1) return fallback
+  return name.slice(dot + 1).toUpperCase()
 }

@@ -4,7 +4,10 @@
  * row components read via props.useStore.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
-import { DEFAULT_FONT_SIZE, type ThemePreference } from '../theme-settings.ts'
+import {
+  DEFAULT_CJK_FONT, DEFAULT_CJK_WEIGHT, DEFAULT_FONT_SIZE, DEFAULT_LATIN_FONT, DEFAULT_LATIN_WEIGHT,
+  type CjkFont, type LatinFont, type ThemePreference,
+} from '../theme-settings.ts'
 
 /** Store state mirrored from the theme snapshot. */
 export interface AppearanceRowState {
@@ -60,6 +63,48 @@ export function createFontSizeRowStore(): EngineStoreHandle<FontSizeRowState, Fo
       sync: (d, fontSize: number, revision: number) => {
         if (revision <= d.revision) return
         d.fontSize = fontSize
+        d.revision = revision
+      },
+    },
+  })
+}
+
+/** Store state mirrored from the theme snapshot font families and weights. */
+export interface FontSectionState {
+  /** Persisted Latin/digit family. */
+  latin: LatinFont
+  /** Persisted Chinese family. */
+  cjk: CjkFont
+  /** Persisted Latin/digit weight (renders only for adjustable families). */
+  latinWeight: number
+  /** Persisted Chinese weight (renders only for adjustable families). */
+  cjkWeight: number
+  /** Service revision; -1 until first sync so revision 0 lands as a change. */
+  revision: number
+}
+
+/** Declared action shape giving the exported factory a stable return type. */
+type FontSectionActions = {
+  sync: (draft: FontSectionState, latin: LatinFont, cjk: CjkFont, latinWeight: number, cjkWeight: number, revision: number) => void
+}
+
+/**
+ * Declares the font section state and write surface.
+ * @returns the store handle.
+ */
+export function createFontSectionStore(): EngineStoreHandle<FontSectionState, FontSectionActions> {
+  return defineStore({
+    init: (): FontSectionState => ({
+      latin: DEFAULT_LATIN_FONT, cjk: DEFAULT_CJK_FONT,
+      latinWeight: DEFAULT_LATIN_WEIGHT, cjkWeight: DEFAULT_CJK_WEIGHT, revision: -1,
+    }),
+    actions: {
+      sync: (d, latin: LatinFont, cjk: CjkFont, latinWeight: number, cjkWeight: number, revision: number) => {
+        if (revision <= d.revision) return
+        d.latin = latin
+        d.cjk = cjk
+        d.latinWeight = latinWeight
+        d.cjkWeight = cjkWeight
         d.revision = revision
       },
     },

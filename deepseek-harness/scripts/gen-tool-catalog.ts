@@ -441,6 +441,27 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
   },
   {
+    pkg: '@deepseek-ai/dsh-skill-filesystem',
+    dir: 'skill-filesystem',
+    source: {
+      skill_install: 'packages/skill/skill-filesystem/src/install-tools.ts',
+      skill_enable: 'packages/skill/skill-filesystem/src/install-tools.ts',
+      skill_disable: 'packages/skill/skill-filesystem/src/install-tools.ts',
+    },
+    requires: ['ctx.tools', 'ctx.skills', 'a session workspace for project scopes'],
+    writes: ['tool/call', 'skill files under known skill roots', 'tool/result'],
+    async mount(ctx) {
+      await ctx.plugin(SkillRegistry)
+      await ctx.plugin(SkillFileSystem, {
+        dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
+        agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
+        installTools: true,
+      })
+    },
+    note:
+      'Opt-in installer surface: the tools register only when the skill-filesystem composition sets installTools. skill_install writes one <name>/SKILL.md bundle and refuses to overwrite without overwrite true; skill_enable and skill_disable rewrite only the two invocation flags.',
+  },
+  {
     pkg: '@deepseek-ai/dsh-tool-session-query',
     dir: 'tool-session-query',
     source: 'packages/session-query/tool-session-query/src/index.ts',

@@ -26,14 +26,29 @@ interface EveryDue {
   readonly occurrenceAt: string
 }
 
-type DueDecision =
+/** One due one-shot, one complete fixed-rate batch, or the next wake. */
+export type DueDecision =
   | { readonly kind: 'one-shot'; readonly record: OneShotScheduleRecord }
   | { readonly kind: 'every'; readonly reminders: readonly EveryDue[]; readonly acceptedAt: string }
   | { readonly kind: 'wait'; readonly target?: number }
 
-/** Select one due one-shot, one complete fixed-rate batch, or the next wake. */
-function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
-  const indexed = folded.active.map((record, index) => ({ record, index }))
+/** Whether a record may fire: paused records stay listed but never dispatch. */
+function isLiveRecord(record: { readonly meta?: { readonly paused?: boolean } }): boolean {
+  return record.meta?.paused !== true
+}
+
+/**
+ * Select one due one-shot, one complete fixed-rate batch, or the next wake.
+ * Paused records are invisible to every branch: they neither dispatch nor arm
+ * timers, and unpausing flows through delete plus create.
+ * @param folded - complete active records and used-id history.
+ * @param now - wall-clock decision sample in epoch milliseconds.
+ * @returns the due selection.
+ */
+export function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
+  const indexed = folded.active
+    .filter(isLiveRecord)
+    .map((record, index) => ({ record, index }))
   const byTargetThenCreate = (
     left: { readonly record: { readonly scheduledAt: string }; readonly index: number },
     right: { readonly record: { readonly scheduledAt: string }; readonly index: number },
@@ -62,6 +77,7 @@ function dueDecision(folded: FoldedSchedules, now: number): DueDecision {
   }
 
   const target = folded.active.reduce<number | undefined>((selected, record) => {
+    if (!isLiveRecord(record)) return selected
     const candidate = Date.parse(record.scheduledAt)
     return candidate > now && (selected === undefined || candidate < selected) ? candidate : selected
   }, undefined)

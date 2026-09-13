@@ -22,6 +22,7 @@ import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import { AgentLoopCard } from './AgentLoopCard.tsx'
 import { BashCard } from './BashCard.tsx'
+import { MarketplacePluginsTab } from './MarketplacePluginsTab.tsx'
 import { ConfigurablePluginsTab } from './ConfigurablePluginsTab.tsx'
 import { PluginsSettingsSection } from './PluginsSettingsSection.tsx'
 import type { PluginsSettingsSectionInjected, PluginsSettingsTabEntry } from './PluginsSettingsSection.tsx'
@@ -152,12 +153,28 @@ export function apply(ctx: ClientContext): void {
     children: { 'settings.plugins.tab': { kind: 'list', scope: 'root' } },
   }, PluginsSettingsSection))
 
-  // The existing configuration page is one ordinary tab. It keeps ownership
+  // The marketplace browse page leads; the configuration page keeps ownership
   // of the card slot and the shipped card contributions below.
   ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
     name: 'settings.plugins.tab',
-    id: 'configurable',
+    id: 'marketplace',
     order: 0,
+    label: () => t('marketplaceTab'),
+    locale: NS,
+    inject: () => ({
+      hooks: {
+        bash: bash.inject().hooks.bashCard,
+        agentLoop: agentLoop.inject().hooks.agentLoopCard,
+        webSearch: webSearch.inject().hooks.webSearchCard,
+        subagent: subagentModelSelection.inject().hooks.subagentModelSelectionCard,
+      },
+    }),
+  }, MarketplacePluginsTab))
+
+  ctx.slots.inject('settings.plugins.tab', () => ctx.slots.register({
+    name: 'settings.plugins.tab',
+    id: 'configurable',
+    order: 1,
     label: () => t('configurableTab'),
     locale: NS,
     inject: () => configurable.inject(),

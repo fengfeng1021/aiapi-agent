@@ -49,6 +49,16 @@
   margin-bottom: -16px;
 }
 
+/* Viewed-images disclosure dot: quiet 6px marker matching the Think and
+   tool-group row density. */
+.imagesDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+  flex: none;
+}
+
 /* Interrupted-turn terminal marker: quiet inline tag, no animation. Fixed
    size like the small/code token variants — 11px is dense secondary text
    that would fall to an illegible 9px at the 12px floor. */

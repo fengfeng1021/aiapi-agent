@@ -1,0 +1,36 @@
+.group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Status dot matching the Think-row density. */
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+  flex: none;
+}
+
+.dot[data-running] {
+  background: var(--dsw-alias-state-business-primary);
+  animation: tool-group-pulse 1s ease-in-out infinite alternate;
+}
+
+@keyframes tool-group-pulse {
+  from { opacity: 0.35; }
+  to { opacity: 1; }
+}
+
+.running {
+  color: var(--dsw-alias-label-secondary);
+}
+
+/* Expanded members stack tighter than the 16px flow rhythm. */
+.members {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
+}

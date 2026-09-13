@@ -55,7 +55,7 @@ The project root is the nearest ancestor containing `.git`; without one, the cur
 
 ### Mount and configure
 
-Load the plugin alongside the skill registry; it requires `ctx.skills`.
+Load the plugin alongside the skill registry; it requires `ctx.skills` and `ctx.tools`.
 
 ```yaml
 - name: '@deepseek-ai/dsh-skill'
@@ -71,6 +71,7 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
+| `installTools` | `false` | Register the model-facing `skill_install`, `skill_enable`, and `skill_disable` tools |
 
 The remaining `watch*` fields tune Chokidar behavior — polling, stability window, interval, project cap, and symlink following. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-skill-filesystem) is the exhaustive source for every field.
 
@@ -81,6 +82,10 @@ Existing roots are watched, so adding, renaming, or deleting a skill (or editing
 ### Observable success and failures
 
 A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion.
+
+### Installing skills
+
+Set `installTools: true` to give agents three filesystem-writing tools alongside discovery: `skill_install` writes one `<name>/SKILL.md` bundle under a scope root and refuses to overwrite without `overwrite: true`; `skill_enable` and `skill_disable` rewrite only the two invocation flags of an installed skill. Scopes are the writable subset of discovery roots — `project-dsh` (default), `project-agents`, `user-dsh`, `user-agents`, and `custom` restricted to configured `customSkillDirs`. The package also serves the bundled `skill-installer` guidance skill in every composition; pair it with the tools when authoring new skills. Installer writes use host Node I/O directly, since skill roots live outside any session filesystem scope; the composition row including this package with `installTools` is the policy gate.
 
 -----
 
@@ -101,6 +106,9 @@ The provider is built on two separations. First, catalog versus body: discovery 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry, provider, root resolution, frontmatter parsing, watch manager |
+| [`src/install.ts`](src/install.ts) | Controlled installer: validation, path resolution, rendering, file orchestration |
+| [`src/install-tools.ts`](src/install-tools.ts) | Model-facing installer tool definitions |
+| [`src/bundled-installer.ts`](src/bundled-installer.ts) | Bundled `skill-installer` guidance provider |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion |
 
 ### Discovery flow
@@ -130,7 +138,7 @@ Read these pages when the package-level contract is not enough. They move from t
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through `dsh-tool-skill`, which renders this provider's invocable names and capped descriptions into the initial or replacement catalog and a selected current instruction body plus resource-base guidance into retained tool history while paths, provider ranks, and disabled skills remain hidden.
+Indirectly, through `dsh-tool-skill`, which renders this provider's invocable names and capped descriptions into the initial or replacement catalog and a selected current instruction body plus resource-base guidance into retained tool history while paths, provider ranks, and disabled skills remain hidden. When `installTools` is true, `skill_install`, `skill_enable`, and `skill_disable` return small JSON results directly, and the installer guidance skill itself renders like any discovered skill.
 
 #### KV Cache effect
 
@@ -148,6 +156,8 @@ These limits define when the provider is a poor fit or needs special operational
 - **Malformed entries disappear with a warning** — the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one; unexpected I/O failures preserve the last-good catalog instead.
 - **Missing-root observation polls one path segment** — roots absent at startup use `fs.watchFile` at `watchPollIntervalMs` until Chokidar can attach, trading bounded detection latency for reliable creation detection across IDE, Git, and shell workflows.
 - **No body revision protocol** — a loaded body is ordinary retained tool history; later file edits affect later calls but neither rewrite old results nor announce that the body changed.
+- **Installer writes bypass the session filesystem policy** — install roots live outside any session scope, so the tools use host Node I/O directly; mount `installTools: true` only where agents may write skills.
+- **Toggles write explicit flags** — enabling or disabling rewrites `disable-model-invocation` and `user-invocable` as explicit booleans rather than restoring absent defaults.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -81,8 +81,8 @@ describe('ui-settings-plugins apply', () => {
     // The nav label is a locale-following thunk; owners resolve it at read time.
     expect(resolveSlotLabel(section.options.label)).toBe('插件')
     expect(slots.spec('settings.plugins.tab')).toMatchObject({ kind: 'list', scope: 'root' })
-    const tab = slots.entries('settings.plugins.tab')[0]!
-    expect(tab.options).toMatchObject({ id: 'configurable', order: 0 })
+    const tab = slots.entries('settings.plugins.tab').find(entry => entry.options.id === 'configurable')!
+    expect(tab.options).toMatchObject({ id: 'configurable', order: 1 })
     expect(resolveSlotLabel(tab.options.label)).toBe('插件配置')
     expect(slots.spec('settings.plugin.item')).toMatchObject({ kind: 'keyed', scope: 'root' })
   })
@@ -97,7 +97,8 @@ describe('ui-settings-plugins apply', () => {
     const sectionFace = (section.inject as unknown as () => PluginsSettingsSectionInjected)()
     const initialTabs = sectionFace.hooks.tabs.getSnapshot()
     expect(initialTabs).toEqual([
-      { id: 'configurable', order: 0, label: '插件配置' },
+      { id: 'marketplace', order: 0, label: '插件市集' },
+      { id: 'configurable', order: 1, label: '插件配置' },
     ])
     expect(sectionFace.hooks.tabs.getSnapshot()).toBe(initialTabs)
 
@@ -105,12 +106,13 @@ describe('ui-settings-plugins apply', () => {
     const unsubscribe = sectionFace.hooks.tabs.subscribe(listener)
     slots.register({ name: 'settings.plugins.tab', id: 'plain' } as never, () => null)
     expect(sectionFace.hooks.tabs.getSnapshot()).toEqual([
-      { id: 'configurable', order: 0, label: '插件配置' },
+      { id: 'marketplace', order: 0, label: '插件市集' },
       { id: 'plain', order: 0, label: '' },
+      { id: 'configurable', order: 1, label: '插件配置' },
     ])
     unsubscribe()
 
-    const tab = slots.entries('settings.plugins.tab')[0]!
+    const tab = slots.entries('settings.plugins.tab').find(entry => entry.options.id === 'configurable')!
     const tabFace = (tab.inject as unknown as () => ConfigurablePluginsTabFace)()
     expect(Object.keys(tabFace.hooks)).toEqual(['configurablePlugins'])
     for (const entry of slots.entries('settings.plugin.item')) {

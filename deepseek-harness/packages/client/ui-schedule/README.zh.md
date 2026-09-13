@@ -39,6 +39,10 @@ dsh web --patch apps/cli/config/examples/schedule/cordis.yml
 
 只有原生触发按钮进入 Tab 顺序。Enter 与 Space 使用按钮的正常激活行为；焦点仍在触发器或目录内时，Escape 会关闭弹层并把焦点交还触发器；在外部按下指针也会关闭。若 live 更新移除最后一条记录，组件会关闭并卸载，但不会把焦点移到另一个会话头部动作。Session 打开失败时，即使存在暂定的缓存 projection，也会隐藏触发器。
 
+### 从侧栏分诊提醒
+
+同一组合还会向 `sidebar.footer.action` 贡献一个入口，在会话列表 projection 镜像（`projectionValues.schedule`）上打开管理面板，因此无需选中会话视图即可分诊。面板复用目录的排序与格式化，另加内容搜索与全部、等待中、已逾期、已暂停筛选；行可展开为完整 prompt，并在存在时展示已存储的版本 2 元数据（项目、模型、推理强度、通知策略）。与目录一样，它是只读的：创建、暂停与删除仍归 Schedule 工具；已完成的提醒不会留下历史，因为 dispatch 会把它们移出活动集。
+
 -----
 
 <a id="understand-the-implementation"></a>
@@ -55,6 +59,9 @@ dsh web --patch apps/cli/config/examples/schedule/cordis.yml
 |---|---|
 | [`src/client/index.ts`](src/client/index.ts) | 浏览器入口：注册 locale 并贡献 Session 头部 slot |
 | [`src/client/ScheduleCatalogAction.tsx`](src/client/ScheduleCatalogAction.tsx) | 可见性、排序、格式化、弹层与键盘行为 |
+| [`src/client/SchedulesFooterAction.tsx`](src/client/SchedulesFooterAction.tsx) | 侧栏管理面板：分诊筛选、搜索、详情与版本 2 元数据 |
+| [`src/client/ScheduleManager.module.css`](src/client/ScheduleManager.module.css) | 管理面板 chrome |
+| [`src/client/FooterAction.module.css`](src/client/FooterAction.module.css) | 侧栏底部按钮 chrome |
 | [`src/client/locales.ts`](src/client/locales.ts) | 中英文目录文案 |
 | [`src/index.ts`](src/index.ts) | 空的 Host apply，使 Loader 可以寻址该可选浏览器功能 |
 | [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件；本包不拥有可变跨插件状态 |
@@ -96,6 +103,7 @@ dsh web --patch apps/cli/config/examples/schedule/cordis.yml
 - **仅含活动记录**——终结性的 delete 与 dispatch 转换会移除对应行；普通 transcript 仍是唯一的提醒交付历史。
 - **浏览器派生时间**——本地时间与相对时间标签使用查看方浏览器当前的 locale、时区与时钟。它们是呈现值，不是持久 Schedule 事实。
 - **只读界面**——创建与删除提醒仍由 Schedule 工具负责；目录没有 mutation、Retry、acknowledgement、Toast 或交付回执语义。
+- **管理面板只做分诊**——暂停与删除仍由 Schedule 工具负责；已完成的提醒不会留下已完成历史，因为 dispatch 会把它们移出活动集；管理面板只筛选 projection 当前持有的内容。
 - **要求 Session 打开成功**——打开失败时，即使存在暂定缓存值也会隐藏，因为严格 Session 回放仍是权威。
 
 <a id="dev-note"></a>

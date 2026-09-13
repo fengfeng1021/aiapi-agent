@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
-import { projectUserText } from '../src/user-text.tsx'
+import { projectUserText, splitUserFileRefs } from '../src/user-text.tsx'
 
 const project = (text: string, labels: readonly string[] = []) =>
   render(<div data-host>{projectUserText(text, labels)}</div>).container.querySelector('[data-host]')!
@@ -80,5 +80,64 @@ describe('projectUserText', () => {
     expect(host.querySelectorAll('div').length).toBe(0)
     expect(host.querySelectorAll('[data-ref-chip]').length).toBe(0)
     expect(host.textContent).toBe('纯文本，无引用')
+  })
+})
+
+describe('splitUserFileRefs', () => {
+  it('lifts submit-appended absolute-path lines out of the text in order', () => {
+    expect(splitUserFileRefs('檔名是什麼\n@C:\\dropped\\a.json\n@/home/user/b.json')).toEqual({
+      text: '檔名是什麼',
+      files: [
+        { path: 'C:\\dropped\\a.json', name: 'a.json' },
+        { path: '/home/user/b.json', name: 'b.json' },
+      ],
+    })
+  })
+
+  it('keeps prose, relative mentions, and typed paths in the text', () => {
+    expect(splitUserFileRefs('看看 @src/main.ts 與 @foo')).toEqual({
+      text: '看看 @src/main.ts 與 @foo',
+      files: [],
+    })
+  })
+
+  it('returns empty text for a message that is only references', () => {
+    expect(splitUserFileRefs('@\\\\server\\share\\c.json')).toEqual({
+      text: '',
+      files: [{ path: '\\\\server\\share\\c.json', name: 'c.json' }],
+    })
+  })
+})
+
+describe('projectUserText links, code, and hashes', () => {
+  it('linkifies a bare url as a safe external link', () => {
+    const host = project('打开 http://127.0.0.1:8081/?token=abc 看看', [])
+    const anchor = host.querySelector('a')!
+    expect(anchor.getAttribute('href')).toBe('http://127.0.0.1:8081/?token=abc')
+    expect(anchor.getAttribute('target')).toBe('_blank')
+    expect(anchor.getAttribute('rel')).toBe('noreferrer noopener')
+    expect(anchor.textContent).toBe('http://127.0.0.1:8081/?token=abc')
+    expect(host.textContent).toBe('打开 http://127.0.0.1:8081/?token=abc 看看')
+  })
+
+  it('strips trailing sentence punctuation from urls', () => {
+    const host = project('去 http://x/y。', [])
+    expect(host.querySelector('a')!.getAttribute('href')).toBe('http://x/y')
+    expect(host.textContent).toBe('去 http://x/y。')
+  })
+
+  it('renders backtick spans as code and never as links', () => {
+    const host = project('用 `curl http://x/` 试试', [])
+    expect(host.querySelectorAll('a').length).toBe(0)
+    const code = host.querySelector('code')!
+    expect(code.textContent).toBe('curl http://x/')
+    expect(host.textContent).toBe('用 curl http://x/ 试试')
+  })
+
+  it('highlights hex hashes but leaves ordinary words alone', () => {
+    const host = project('更新 6456c07df 成功，man main 不变', [])
+    const codes = [...host.querySelectorAll('code')]
+    expect(codes.map(c => c.textContent)).toEqual(['6456c07df'])
+    expect(host.textContent).toBe('更新 6456c07df 成功，man main 不变')
   })
 })

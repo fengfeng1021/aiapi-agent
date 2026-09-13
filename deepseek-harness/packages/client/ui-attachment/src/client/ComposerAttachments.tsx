@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  ComposerAttachment, ComposerAttachmentsProps,
+  ComposerAttachment, ComposerAttachmentsProps, ComposerImageAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
 import { ImageLightbox } from '../ImageLightbox.tsx'
-import { attachmentRailLabels, dropOverlayLabels, lightboxLabels } from './labels.ts'
+import { attachmentRailLabels, dropOverlayLabels, fileTypeLabel, lightboxLabels } from './labels.ts'
 import css from './ComposerAttachments.module.css'
 
 /** Rail item retaining its browser-owned attachment for callbacks. */
-interface ComposerRailItem extends AttachmentRailItem {
-  attachment: ComposerAttachment
-}
+type ComposerRailItem = AttachmentRailItem & { attachment: ComposerAttachment }
 
-/** Draft-image rail, document drop target, and original-image preview slot entry. */
+/** Draft-attachment rail, drop invitation, and original-image preview entry. */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddImages, onRemoveImage, dropLimits, t,
+  attachments, canAcceptDrop, dropActive, onAddImages, onRemoveImage, dropLimits, t,
 }: ComposerAttachmentsProps) {
-  const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+  const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const dragDepth = useRef(0)
   const closePreview = useCallback(() => { setPreview(null) }, [])
@@ -27,30 +25,37 @@ export function ComposerAttachments({
     if (preview !== null && !attachments.some(attachment => attachment.id === preview.id)) setPreview(null)
   }, [attachments, preview])
 
+  // The host reports file drags over the window (Tauri events); the DOM path
+  // reports them itself in plain browsers. Either one raises the invitation.
+  const overlayActive = dragActive || dropActive
+
   useEffect(() => {
-    const fileTransfer = (event: globalThis.DragEvent): DataTransfer | null => {
+    // Some WebView2 drops report an empty type list while still carrying
+    // files, so presence keys off types (cheap) but delivery keys off files
+    // (authoritative): an empty list may still be files, a populated
+    // non-Files list is never files.
+    const maybeFiles = (event: globalThis.DragEvent): boolean => {
       const dataTransfer = event.dataTransfer
-      if (dataTransfer === null || !dataTransfer.types.includes('Files')) return null
-      return dataTransfer
+      return dataTransfer !== null
+        && (dataTransfer.types.length === 0 || dataTransfer.types.includes('Files'))
     }
     const reset = (): void => {
       dragDepth.current = 0
       setDragActive(false)
     }
     const onDragEnter = (event: globalThis.DragEvent): void => {
-      if (fileTransfer(event) === null) return
+      if (!maybeFiles(event)) return
       event.preventDefault()
       dragDepth.current += 1
       setDragActive(true)
     }
     const onDragOver = (event: globalThis.DragEvent): void => {
-      const dataTransfer = fileTransfer(event)
-      if (dataTransfer === null) return
+      if (event.dataTransfer === null || !maybeFiles(event)) return
       event.preventDefault()
-      dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
+      event.dataTransfer.dropEffect = canAcceptDrop ? 'copy' : 'none'
     }
     const onDragLeave = (event: globalThis.DragEvent): void => {
-      if (fileTransfer(event) === null) return
+      if (!maybeFiles(event)) return
       dragDepth.current = Math.max(0, dragDepth.current - 1)
       if (dragDepth.current === 0) setDragActive(false)
       const leftViewport = event.clientX <= 0 || event.clientY <= 0
@@ -58,8 +63,8 @@ export function ComposerAttachments({
       if ((event.target === document.documentElement || event.target === document.body) && leftViewport) reset()
     }
     const onDrop = (event: globalThis.DragEvent): void => {
-      const dataTransfer = fileTransfer(event)
-      if (dataTransfer === null) return
+      const dataTransfer = event.dataTransfer
+      if (dataTransfer === null || dataTransfer.files.length === 0) return
       event.preventDefault()
       reset()
       if (canAcceptDrop) onAddImages([...dataTransfer.files])
@@ -78,17 +83,29 @@ export function ComposerAttachments({
     }
   }, [canAcceptDrop, onAddImages])
 
-  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
-    id: attachment.id,
-    previewUrl: attachment.previewUrl,
-    alt: attachment.file.name || t('image.pending'),
-    removeLabel: t('image.remove', { name: attachment.file.name }),
-    attachment,
-  })), [attachments, t])
+  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map((attachment): ComposerRailItem => (
+    attachment.kind === 'file'
+      ? {
+        kind: 'file',
+        id: attachment.id,
+        name: attachment.name,
+        typeLabel: fileTypeLabel(attachment.name, t('file.typeFallback')),
+        removeLabel: t('file.remove', { name: attachment.name }),
+        attachment,
+      }
+      : {
+        kind: 'image',
+        id: attachment.id,
+        previewUrl: attachment.previewUrl,
+        alt: attachment.file.name || t('image.pending'),
+        removeLabel: t('image.remove', { name: attachment.file.name }),
+        attachment,
+      }
+  )), [attachments, t])
 
   return (
     <>
-      {dragActive && (
+      {overlayActive && (
         <DropOverlay
           disabled={!canAcceptDrop}
           labels={dropOverlayLabels(t, canAcceptDrop, dropLimits)}
@@ -99,7 +116,9 @@ export function ComposerAttachments({
           <AttachmentRail
             items={railItems}
             labels={attachmentRailLabels(t)}
-            onOpen={(item) => { setPreview(item.attachment) }}
+            onOpen={(item) => {
+              if (item.attachment.kind === 'image') setPreview(item.attachment)
+            }}
             onRemove={(item) => { onRemoveImage(item.attachment.id) }}
           />
         </div>

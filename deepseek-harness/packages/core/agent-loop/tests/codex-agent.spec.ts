@@ -19,7 +19,7 @@ async function setupHarness(): Promise<Context> {
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { engine: 'codex', agents: [] })
+  await ctx.plugin(AgentLoop, { agents: [] })
   return ctx
 }
 

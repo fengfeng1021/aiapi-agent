@@ -217,6 +217,114 @@ describe('WorkspaceController commands', () => {
     await expect(controller.archiveSession({ sessionId: SessionId('unknown') }))
       .rejects.toMatchObject({ code: 'session/not-found' })
   })
+
+  it('deletes sessions permanently, cascades workspace deletes, and guards live sessions', async () => {
+    const { controller, ctx, root } = await harness()
+    const persistence = ctx.sessionPersistence as unknown as {
+      delete(id: SessionId): Promise<boolean>
+    }
+    const deleted: SessionId[] = []
+    persistence.delete = async (sessionId: SessionId): Promise<boolean> => {
+      deleted.push(sessionId)
+      return true
+    }
+    const created = await controller.create({ path: stageDir(root, 'owned') })
+    const workspaceId = created.workspace.workspaceId
+    const live = ctx.sessions.create(SessionId('live-s'), { meta: { cwd: created.workspace.path } })
+    const cold = ctx.sessions.create(SessionId('cold-s'), { meta: { cwd: created.workspace.path } })
+    const workspace = ctx.workspaceRegistry.get(workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    await workspace.attachSession(live.id)
+    await workspace.attachSession(cold.id)
+
+    await expect(controller.deleteSession({ sessionId: live.id }))
+      .rejects.toMatchObject({ code: 'session/live', details: { sessionId: live.id } })
+    expect(deleted).toEqual([])
+
+    // A restarted server sees accounting without live sessions: detach the
+    // store view while the registry still accounts both ids.
+    const liveSessions = vi.spyOn(ctx.sessions, 'get').mockReturnValue(undefined)
+    try {
+      await expect(controller.deleteSession({ sessionId: cold.id }))
+        .resolves.toEqual({ deleted: true })
+      expect(deleted).toEqual([cold.id])
+      expect(ctx.workspaceRegistry.get(workspaceId)?.sessionIds).toEqual([live.id])
+
+      await expect(controller.delete({ workspaceId, cascadeSessions: true }))
+        .resolves.toEqual({ deleted: true })
+      expect(deleted).toEqual([cold.id, live.id])
+      expect(ctx.workspaceRegistry.get(workspaceId)).toBeUndefined()
+    } finally {
+      liveSessions.mockRestore()
+    }
+  })
+
+  it('closes a live Session through its owner before deleting it', async () => {
+    const { controller, ctx, root } = await harness()
+    const persistence = ctx.sessionPersistence as unknown as {
+      delete(id: SessionId): Promise<boolean>
+    }
+    const deleted: SessionId[] = []
+    persistence.delete = async (sessionId: SessionId): Promise<boolean> => {
+      deleted.push(sessionId)
+      return true
+    }
+    const created = await controller.create({ path: stageDir(root, 'owned-live') })
+    const session = ctx.sessions.create(SessionId('owned-live-s'), { meta: { cwd: created.workspace.path } })
+    const workspace = ctx.workspaceRegistry.get(created.workspace.workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    await workspace.attachSession(session.id)
+
+    let open = true
+    const originalGet = ctx.sessions.get.bind(ctx.sessions)
+    vi.spyOn(ctx.sessions, 'get').mockImplementation(id => open ? originalGet(id) : undefined)
+    const closeSession = vi.fn(async () => { open = false })
+    ctx.provide('sessionController' as never, { closeSession } as never)
+
+    await expect(controller.deleteSession({ sessionId: session.id }))
+      .resolves.toEqual({ deleted: true })
+    expect(closeSession).toHaveBeenCalledWith(session.id)
+    expect(deleted).toEqual([session.id])
+    expect(ctx.workspaceRegistry.get(created.workspace.workspaceId)?.sessionIds).toEqual([])
+  })
+
+  it('keeps rejecting a Session whose owner cannot close it', async () => {
+    const { controller, ctx, root } = await harness()
+    const created = await controller.create({ path: stageDir(root, 'unclosable-live') })
+    const session = ctx.sessions.create(SessionId('unclosable-live-s'), { meta: { cwd: created.workspace.path } })
+    const workspace = ctx.workspaceRegistry.get(created.workspace.workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    await workspace.attachSession(session.id)
+    const closeSession = vi.fn(async () => {})
+    ctx.provide('sessionController' as never, { closeSession } as never)
+
+    await expect(controller.deleteSession({ sessionId: session.id }))
+      .rejects.toMatchObject({ code: 'session/live', details: { sessionId: session.id } })
+    expect(closeSession).toHaveBeenCalledWith(session.id)
+  })
+
+  it('maps persistence deletion failures to live-session or raw errors', async () => {
+    const { controller, ctx, root } = await harness()
+    const persistence = ctx.sessionPersistence as unknown as {
+      delete(id: SessionId): Promise<boolean>
+    }
+    const created = await controller.create({ path: stageDir(root, 'fragile') })
+    const session = ctx.sessions.create(SessionId('fragile-s'), { meta: { cwd: created.workspace.path } })
+    const workspace = ctx.workspaceRegistry.get(created.workspace.workspaceId)
+    if (workspace === undefined) throw new Error('fixture Workspace disappeared')
+    await workspace.attachSession(session.id)
+    const liveSessions = vi.spyOn(ctx.sessions, 'get').mockReturnValue(undefined)
+    try {
+      persistence.delete = () => Promise.reject(new Error('log locked while it is open'))
+      await expect(controller.deleteSession({ sessionId: session.id }))
+        .rejects.toMatchObject({ code: 'session/live' })
+      persistence.delete = () => Promise.reject(new Error('disk gone'))
+      await expect(controller.deleteSession({ sessionId: session.id }))
+        .rejects.toThrow('disk gone')
+    } finally {
+      liveSessions.mockRestore()
+    }
+  })
 })
 
 describe('WorkspaceController follow', () => {

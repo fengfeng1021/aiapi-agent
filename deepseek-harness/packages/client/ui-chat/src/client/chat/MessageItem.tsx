@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { MessageImageSource } from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { JsonBlock, projectUserText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import { JsonBlock, projectUserText, ReferenceIcon, splitUserFileRefs, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
 import { CompactionItem } from './CompactionItem.tsx'
@@ -166,7 +166,8 @@ function UserStyleBubble({
   reveal?: 'always' | 'hover'
   t: ChatViewSlotProps['t']
 }): ReactNode {
-  const { text, images: contentImages, rest } = contentParts(content)
+  const { text: rawText, images: contentImages, rest } = contentParts(content)
+  const { text, files } = splitUserFileRefs(rawText)
   const images = previewImages ?? contentImages
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || rest.length > 0
@@ -179,6 +180,12 @@ function UserStyleBubble({
     >
       <div className={css.userStack}>
         {renderMessageImages({ images, align: 'end' })}
+        {files.map((file, i) => (
+          <div key={`${i}:${file.path}`} className={css.fileBubble} data-user-file title={file.path}>
+            <ReferenceIcon kind="file" size={16} className={css.fileBubbleIcon} />
+            {file.name}
+          </div>
+        ))}
         {showBubble && <div className={css.bubble}>
           {projectUserText(text, referenceLabels)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}

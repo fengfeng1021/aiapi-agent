@@ -464,6 +464,28 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return (await this.listArtifacts(signal)).map(artifact => artifact.header)
   }
 
+  /**
+   * Permanently delete one session's directory (log file in either encoding
+   * plus any session-local artifacts). Refuses live sessions: deleting under
+   * an attached Session would resurrect the log on its next append.
+   */
+  override async delete(id: SessionId): Promise<boolean> {
+    if (this.ctx.get('sessions')?.get(id) !== undefined) {
+      throw new Error(`cannot delete session "${id}" while it is open; close it first`)
+    }
+    await this.ensureRootEncoding()
+    let removed = false
+    for (const project of await this.listProjectDirs()) {
+      for (const dir of await this.listSessionDirs(project)) {
+        if (dir.split(/[\\/]/).pop() !== encodeSegment(id)) continue
+        await rm(dir, { recursive: true, force: true })
+        removed = true
+      }
+    }
+    this.coordinator.evict(id)
+    return removed
+  }
+
   /** List metadata plus a stat-derived identity for each append-only log. */
   async listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]> {
     const snapshots: SessionPersistenceSnapshot[] = []

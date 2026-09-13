@@ -3,6 +3,7 @@
 import { notifySubscribers } from '@deepseek-ai/dsh-client-store'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/remote'
 import { isRemoteFailure } from '@deepseek-ai/dsh-api-gateway/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { RemoteFailure, RemoteResult, TypertClientRemote } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   WorkspaceArchiveSessionRequest,
@@ -10,6 +11,8 @@ import type {
   WorkspaceBaseline,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
@@ -103,10 +106,14 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
   /**
    * Delete a Workspace and remove it from the local projection immediately.
    * @param workspaceId - target Workspace.
+   * @param cascadeSessions - also permanently delete every owned Session.
    * @returns generated Remote result.
    */
-  async delete(workspaceId: WorkspaceId): Promise<RemoteResult<WorkspaceDeleteValue>> {
-    const result = await this.remote.delete({ workspaceId })
+  async delete(workspaceId: WorkspaceId, cascadeSessions?: boolean): Promise<RemoteResult<WorkspaceDeleteValue>> {
+    const result = await this.remote.delete({
+      workspaceId,
+      ...cascadeSessions === undefined ? {} : { cascadeSessions },
+    })
     if (result.ok) this.remove(workspaceId, true)
     return result
   }
@@ -168,6 +175,30 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
     const result = await this.remote.archiveSession({ sessionId })
     if (result.ok) this.installArchived(result.value.archivedSessionIds)
     return result
+  }
+
+  /**
+   * Permanently delete one Session and prune it from the local projection
+   * immediately (all workspace rows plus the archive set).
+   * @param sessionId - Session to delete.
+   * @returns generated Remote result.
+   */
+  async deleteSession(
+    sessionId: WorkspaceDeleteSessionRequest['sessionId'],
+  ): Promise<RemoteResult<WorkspaceDeleteSessionValue>> {
+    const result = await this.remote.deleteSession({ sessionId })
+    if (result.ok) this.pruneSession(sessionId)
+    return result
+  }
+
+  /** Drop one Session id from every projected row and the archive set. */
+  private pruneSession(sessionId: SessionId): void {
+    this.items = this.items.map(item => ({
+      ...item,
+      sessionIds: item.sessionIds.filter(id => id !== sessionId),
+    }))
+    this.installArchived(this.archivedSessionIds.filter(id => id !== sessionId))
+    this.invalidate(true)
   }
 
   /**

@@ -2033,7 +2033,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-skill-filesystem`
 
-需要：`skills`
+需要：`skills`、`tools`
 
 ```ts config-catalog
 /** Local filesystem skill provider configuration. */
@@ -2062,10 +2062,16 @@ export interface Config {
   watchFollowSymlinks?: boolean
   /** Bundled skill root; defaults to `$DSH_BUNDLED_SKILL_DIR` when default roots are included, otherwise mounts none. */
   bundledSkillDir?: string
+  /**
+   * Register the model-facing `skill_install`, `skill_enable`, and
+   * `skill_disable` tools. Defaults to false: installer writes are a
+   * privileged opt-in per composition, never a default surface.
+   */
+  installTools?: boolean
 }
 ```
 
-来源：[`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+来源：[`packages/skill/skill-filesystem/src/index.ts:52`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-spill-local"></a>
 

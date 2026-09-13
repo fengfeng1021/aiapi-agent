@@ -104,7 +104,12 @@ class CodexProvider implements SubagentProvider {
       permissionMode: this.config.permissionMode,
       env: {
         ...this.config.env,
-        CODEX_HOME: process.env.CODEX_ISOLATED_HOME || join(homedir(), '.dsh', 'codex-isolated'),
+        // An explicit per-plugin CODEX_HOME wins: silently dropping it leaves
+        // every caller believing in isolation it never had (the test fixture
+        // relies on this). Otherwise fall back to the dsh-managed home.
+        CODEX_HOME: this.config.env.CODEX_HOME
+          ?? process.env.CODEX_ISOLATED_HOME
+          ?? join(homedir(), '.dsh', 'codex-isolated'),
       },
       disposeGraceMs: this.config.disposeGraceMs,
       spawn: spawnSpec => this.ctx.subprocess.spawn(spawnSpec),

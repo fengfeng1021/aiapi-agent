@@ -382,7 +382,7 @@ describe('draft image dimension probe', () => {
       const [unprobed] = b.root.createDraftImages([
         new File([Uint8Array.of(2)], 'unprobed.png', { type: 'image/png' }),
       ])
-      expect(unprobed?.width).toBeUndefined()
+      expect(unprobed?.kind === 'image' ? unprobed.width : undefined).toBeUndefined()
     } finally {
       vi.unstubAllGlobals()
       created.mockRestore()

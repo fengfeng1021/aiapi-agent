@@ -104,6 +104,7 @@ async function realInstanceFixture(
   ].join('\n'))
   const env = {
     OPENAI_API_KEY: 'dsh-fake-openai-key',
+    USERPROFILE: root,
     CODEX_HOME: codexHome,
     HOME: root,
     XDG_CONFIG_HOME: join(root, 'xdg'),

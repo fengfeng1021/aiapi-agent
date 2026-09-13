@@ -7,10 +7,33 @@ import { DARK_ATTRIBUTE, ThemePresenter } from '@deepseek-ai/dsh-client-ui-layou
 const LIGHT_THEME_COLOR = 'rgb(255, 255, 255)'
 const DARK_THEME_COLOR = 'rgb(21, 21, 23)'
 
-function snapshot(colorScheme: 'light' | 'dark', tokens: Record<string, string> = {}, fontSize = 14): ThemeSnapshot {
+function snapshot(
+  colorScheme: 'light' | 'dark',
+  tokens: Record<string, string> = {},
+  fontSize = 14,
+  fontWeights: { body: number; code: number } = { body: 400, code: 400 },
+  cjkLetterSpacing = '0em',
+): ThemeSnapshot {
   // The presenter must key off colorScheme, not the id — keep them distinct.
   const active = { id: `${colorScheme}-test`, colorScheme, tokens }
-  return { preference: colorScheme, fontSize, active, themes: [active], revision: 1 }
+  const fonts = {
+    ui: 'Cascadia Mono' + ', ' + 'Microsoft YaHei UI' + ', Microsoft YaHei, sans-serif',
+    code: 'Cascadia Mono' + ', ' + 'Microsoft YaHei UI' + ', Microsoft YaHei, Consolas',
+  }
+  return {
+    preference: colorScheme,
+    fontSize,
+    latinFont: 'Cascadia Mono',
+    cjkFont: 'Microsoft YaHei UI',
+    fonts,
+    latinWeight: 400,
+    cjkWeight: 500,
+    fontWeights,
+    cjkLetterSpacing,
+    active,
+    themes: [active],
+    revision: 1,
+  }
 }
 
 function clearThemePresentation(): void {
@@ -80,7 +103,27 @@ describe('ThemePresenter', () => {
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('17px')
   })
 
-  it('dispose removes color-scheme, the attribute, the font-size axis, and every applied variable, sparing foreign inline styles', () => {
+  it('publishes the Windows Terminal font stacks and follows changes', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('light'))
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toContain('Cascadia Mono')
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toContain('Microsoft YaHei UI')
+    expect(document.body.style.getPropertyValue('--ds-font-family-code')).toContain('Cascadia Mono')
+  })
+
+  it('publishes the rendered weight axes and follows changes', () => {
+    const presenter = new ThemePresenter()
+    presenter.apply(snapshot('light'))
+    expect(document.body.style.getPropertyValue('--dsw-font-weight')).toBe('400')
+    expect(document.body.style.getPropertyValue('--ds-font-weight-code')).toBe('400')
+    presenter.apply(snapshot('light', {}, 14, { body: 600, code: 700 }))
+    expect(document.body.style.getPropertyValue('--dsw-font-weight')).toBe('600')
+    expect(document.body.style.getPropertyValue('--ds-font-weight-code')).toBe('700')
+    presenter.apply(snapshot('light', {}, 14, { body: 400, code: 400 }, '-0.12em'))
+    expect(document.body.style.getPropertyValue('--dsh-cjk-letter-spacing')).toBe('-0.12em')
+  })
+
+  it('dispose removes color-scheme, the attribute, the font axes, and every applied variable, sparing foreign inline styles', () => {
     document.body.style.setProperty('--foreign', 'kept')
     const presenter = new ThemePresenter()
     presenter.apply(snapshot('dark', { '--dsw-alias-bg': '#111' }))
@@ -90,6 +133,11 @@ describe('ThemePresenter', () => {
     expect(document.body.hasAttribute(DARK_ATTRIBUTE)).toBe(false)
     expect(document.body.style.getPropertyValue('--dsw-alias-bg')).toBe('')
     expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsw-font-family')).toBe('')
+    expect(document.body.style.getPropertyValue('--ds-font-family-code')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsw-font-weight')).toBe('')
+    expect(document.body.style.getPropertyValue('--ds-font-weight-code')).toBe('')
+    expect(document.body.style.getPropertyValue('--dsh-cjk-letter-spacing')).toBe('')
     expect(document.body.style.getPropertyValue('--foreign')).toBe('kept')
     expect(meta?.isConnected).toBe(false)
   })

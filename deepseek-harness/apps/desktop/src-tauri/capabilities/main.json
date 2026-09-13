@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Main-window IPC for the loopback web UI: drag-drop event subscription plus dropped-image byte reads. The window only ever navigates to its own runtime server on a random 127.0.0.1 port (the navigation policy pins it), so the remote pattern covers exactly that loopback origin.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "fs:allow-read-file",
+    { "identifier": "fs:scope", "allow": [{ "path": "**" }] }
+  ]
+}

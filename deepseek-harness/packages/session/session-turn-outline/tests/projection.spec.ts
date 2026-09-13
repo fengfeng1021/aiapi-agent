@@ -125,6 +125,26 @@ describe('turn outline projection unit', () => {
     expect(entry?.response).toHaveLength(120)
   })
 
+  it('drops submit-appended file references from the prompt preview', async () => {
+    const { ctx, session } = await harness(true)
+    session.append('turn/start', { turn: 1 })
+    session.append('user/message', createUserMessage({
+      content: [
+        { type: 'image', attachment: {} as never },
+        { type: 'text', text: '檔名是什麼\n@C:\\dropped\\streambot-2026.json\n@D:\\logs\\second.json' },
+      ],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    endTurn(session, 1)
+    expect(outlineOf(ctx, session)[0]?.prompt).toBe('檔名是什麼')
+
+    // A references-only prompt normalizes to nothing: the entry stays unlabeled.
+    session.append('turn/start', { turn: 2 })
+    appendPrompt(session, '@C:\\only\\one.json')
+    endTurn(session, 2)
+    expect(outlineOf(ctx, session)[1]?.prompt).toBe('')
+  })
+
   it('ignores non-human user/message sources and pre-turn prompts', async () => {
     const { ctx, session } = await harness(true)
     appendPrompt(session, 'queued before any turn')

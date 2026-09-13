@@ -1,3 +1,4 @@
+import { splitUserFileRefs } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNode } from '../contract/chat-nodes.ts'
 import type { ChatLocationNodeIndex, ChatNodeStore, TurnNavigationItem } from '../contract/snapshot.ts'
 
@@ -42,7 +43,13 @@ function preview(parts: Iterable<string>, limit: number): string {
 
 function promptText(node: ChatNode): string {
   if (node.kind !== 'user') return ''
-  return preview(node.data.content.flatMap(block => block.type === 'text' ? [block.text] : []), PROMPT_PREVIEW_LIMIT)
+  // Submit-appended file references are attachments, not prose: dropping them
+  // keeps a dropped-file path out of the rail card the way the bubble keeps
+  // it out of the message text.
+  const parts = node.data.content
+    .flatMap(block => block.type === 'text' ? [block.text] : [])
+    .map(part => splitUserFileRefs(part).text)
+  return preview(parts, PROMPT_PREVIEW_LIMIT)
 }
 
 function responseText(node: ChatNode): string {

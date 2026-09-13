@@ -32,7 +32,7 @@ const labels: AttachmentRailLabels = {
 }
 
 function item(id: string): AttachmentRailItem {
-  return { id, previewUrl: `blob:${id}`, alt: `${id}.png`, removeLabel: `移除图片 ${id}.png` }
+  return { kind: 'image', id, previewUrl: `blob:${id}`, alt: `${id}.png`, removeLabel: `移除图片 ${id}.png` }
 }
 
 /** Stub the rail's scroll geometry (jsdom reports 0 for every metric). */

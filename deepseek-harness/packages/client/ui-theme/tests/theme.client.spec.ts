@@ -57,6 +57,106 @@ describe('ThemeRuntime', () => {
     expect(host.set).toHaveBeenCalledOnce()
   })
 
+  it('defaults fonts to the Windows Terminal pairing', () => {
+    const { theme } = make()
+    expect(theme.getTheme().latinFont).toBe('Cascadia Mono')
+    expect(theme.getTheme().cjkFont).toBe('Microsoft YaHei UI')
+  })
+
+  it('setLatinFont/setCjkFont switch, write through, republish; same value is a no-op', () => {
+    const { theme, events, host } = make()
+    host.publish({
+      status: 'ready',
+      value: { preference: 'system', fontSize: 14, latinFont: 'Cascadia Mono', cjkFont: 'Microsoft YaHei UI' } as ThemeSettings,
+      revision: 1,
+      writable: true,
+    })
+    expect(events).toHaveLength(0)
+    expect(() => { theme.setLatinFont('Cascadia Mono') }).not.toThrow()
+    expect(events).toHaveLength(0)
+    expect(() => { theme.setLatinFont('Sequel Sans') }).toThrow('not selectable')
+    expect(() => { theme.setCjkFont('Sequel Sans') }).toThrow('not selectable')
+    expect(host.set).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the default fonts on partial or invalid Host sections', () => {
+    const { theme, events, host } = make()
+    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 12 } as unknown as ThemeSettings, revision: 1, writable: true })
+    expect(theme.getTheme().latinFont).toBe('Cascadia Mono')
+    expect(theme.getTheme().cjkFont).toBe('Microsoft YaHei UI')
+    host.publish({
+      status: 'ready',
+      value: { preference: 'system', fontSize: 12, latinFont: 'Comic Sans', cjkFont: 'Comic Sans' } as unknown as ThemeSettings,
+      revision: 2,
+      writable: true,
+    })
+    expect(theme.getTheme().latinFont).toBe('Cascadia Mono')
+    expect(theme.getTheme().cjkFont).toBe('Microsoft YaHei UI')
+    expect(events).toHaveLength(1)
+  })
+
+  it('defaults font weights and renders fixed families at 400', () => {
+    const { theme } = make()
+    expect(theme.getTheme().latinWeight).toBe(400)
+    expect(theme.getTheme().cjkWeight).toBe(500)
+    expect(theme.getTheme().fontWeights).toEqual({ body: 400, code: 400 })
+    expect(theme.getTheme().cjkLetterSpacing).toBe('0em')
+  })
+
+  it('setLatinWeight/setCjkWeight switch, write through, republish; same value is a no-op', () => {
+    const { theme, events, host } = make()
+    theme.setLatinWeight(700)
+    expect(theme.getTheme().latinWeight).toBe(700)
+    expect(host.set).toHaveBeenCalledWith('latinWeight', 700)
+    expect(events).toHaveLength(1)
+    theme.setLatinWeight(700)
+    expect(events).toHaveLength(1)
+    expect(host.set).toHaveBeenCalledOnce()
+    for (const weight of [99, 901, 450.5, Number.NaN]) {
+      expect(() => { theme.setLatinWeight(weight) }).toThrow('outside 100..900')
+      expect(() => { theme.setCjkWeight(weight) }).toThrow('outside 100..900')
+    }
+    expect(host.set).toHaveBeenCalledOnce()
+    theme.setCjkWeight(600)
+    expect(theme.getTheme().cjkWeight).toBe(600)
+    // Default families are fixed-weight: the persisted values are memory only.
+    expect(theme.getTheme().fontWeights).toEqual({ body: 400, code: 400 })
+  })
+
+  it('fontWeights follow the adjustable families once selected', () => {
+    const { theme } = make()
+    theme.setLatinFont('Noto Sans Mono')
+    theme.setCjkFont('Maple Mono CN')
+    theme.setLatinWeight(700)
+    theme.setCjkWeight(600)
+    expect(theme.getTheme().fontWeights).toEqual({ body: 600, code: 700 })
+    expect(theme.getTheme().cjkLetterSpacing).toBe('0em')
+  })
+
+  it('adopts published Host weights without writing them back, falling back on junk', () => {
+    const { theme, events, host } = make()
+    host.publish({
+      status: 'ready',
+      value: {
+        preference: 'system', fontSize: 14, latinFont: 'Noto Sans Mono', cjkFont: 'Maple Mono CN',
+        latinWeight: 700, cjkWeight: 600,
+      },
+      revision: 1,
+      writable: true,
+    })
+    expect(theme.getTheme().fontWeights).toEqual({ body: 600, code: 700 })
+    expect(host.set).not.toHaveBeenCalled()
+    host.publish({
+      status: 'ready',
+      value: { preference: 'system', fontSize: 14, latinWeight: 50, cjkWeight: 950 } as unknown as ThemeSettings,
+      revision: 2,
+      writable: true,
+    })
+    expect(theme.getTheme().latinWeight).toBe(400)
+    expect(theme.getTheme().cjkWeight).toBe(500)
+    expect(events).toHaveLength(2)
+  })
+
   it('rejects out-of-range and fractional font sizes', () => {
     const { theme, events, host } = make()
     for (const px of [11, 18, 14.5, Number.NaN]) {
@@ -68,7 +168,7 @@ describe('ThemeRuntime', () => {
 
   it('adopts a published Host font size without writing it back', () => {
     const { theme, events, host } = make()
-    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 12 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'system', fontSize: 12 } as unknown as ThemeSettings, revision: 1, writable: true })
     expect(theme.getTheme().fontSize).toBe(12)
     expect(events).toHaveLength(1)
     expect(host.set).not.toHaveBeenCalled()
@@ -92,17 +192,17 @@ describe('ThemeRuntime', () => {
 
   it('adopts a published Host section without writing it back', () => {
     const { theme, events, host } = make()
-    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 } as unknown as ThemeSettings, revision: 1, writable: true })
     expect(theme.getTheme().preference).toBe('dark')
     expect(events).toHaveLength(1)
     expect(host.set).not.toHaveBeenCalled()
-    host.publish({ value: { preference: 'dark', fontSize: 14 }, revision: 2 })
+    host.publish({ value: { preference: 'dark', fontSize: 14 } as unknown as ThemeSettings, revision: 2 })
     expect(events).toHaveLength(1)
   })
 
   it('adopts a section already standing at construction', () => {
     const host = stubSettingsScope<ThemeSettings>()
-    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 }, revision: 1, writable: true })
+    host.publish({ status: 'ready', value: { preference: 'dark', fontSize: 14 } as unknown as ThemeSettings, revision: 1, writable: true })
     const { theme } = make(host)
     expect(theme.getTheme().preference).toBe('dark')
   })

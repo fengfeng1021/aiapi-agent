@@ -36,6 +36,7 @@
 | `@deepseek-ai/dsh-tool-lsp` | `lsp` | `ctx.tools`、`ctx.lsp`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，因此其模型可见 schema 在更换提供方时保持稳定。运行时要求已注册提供方，例如 `@deepseek-ai/dsh-lsp-stdio`；如果没有提供方，查询会返回结构化 `LSP_UNAVAILABLE` 错误，而不会改变 schema。 |
 | `@deepseek-ai/dsh-tool-ralph` | `ralph` | `ctx.tools`、`ctx.workflowEngine`、`ctx.subagents`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents every fresh round)` | `tool/call`、`tool/result`、`workflow and child session events during execution` | - | 固定的前台工作流会在每个 Round 启动一个全新的结构化子级；模型只能选择不可变目标和可选的 Round 上限。 |
 | `@deepseek-ai/dsh-tool-skill` | `skill` | `ctx.tools`、`ctx.agents`、`ctx.skills` | `tool/call`、`tool/result`、`user/message replacement catalogs via agent.inject()` | - | - |
+| `@deepseek-ai/dsh-skill-filesystem` | `skill_disable`、`skill_enable`、`skill_install` | `ctx.tools`、`ctx.skills`、项目作用域需要会话工作区 | `tool/call`、已知 skill 根目录下的 skill 文件、`tool/result` | - | 选择启用的安装器表面：仅当 skill-filesystem 组合设置 installTools 时才注册工具。skill_install 写入单个 <name>/SKILL.md 包，无 overwrite true 时拒绝覆盖；skill_enable 与 skill_disable 只重写两个调用标记。 |
 | `@deepseek-ai/dsh-tool-session-query` | `session_event_read`、`session_event_search`、`session_event_trace`、`session_search`、`session_trace` | `ctx.tools`、`ctx.systemPrompt`、`ctx.sessionQuery`、`a calling Agent for workspace authority` | `tool/call`、`tool/result` | - | 这 5 个只读工具会隐藏提供方游标，并根据不可变的调用 agent 会话为每个结果授权。该包需要选择启用；需要强制截止时间或限制行内输出的组合还会挂载通用超时或 spill 策略。 |
 | `@deepseek-ai/dsh-tool-subagent` | `list_subagent_models`、`subagent` | `ctx.tools`、`ctx.subagents`、`ctx.systemPrompt`、`用于模型发现和所选路由校验的 ctx.llm` | `tool/call`、`tool/result`、`child session events through the chosen provider` | `subagent`、`subagent_fork` | 注册的委派工具名称取决于加载时 `toolName` 配置（默认为 `subagent`）；上述默认 schema 关闭模型选择，而发现 schema 则展示为已启用 Session 中可用的固定配套工具。Web preset 会在每个新顶层 Session 创建时读取插件页偏好，并为其子 Session 保留该决定；`subagent_fork` 始终使用固定路由。每个实例通过 `modelSelectionSettings`、`backgroundMode` 与 `enableRunInBackground` 独立控制是否读取模型选择设置及其后台行为。 |
 | `@deepseek-ai/dsh-tool-subagent-control` | `interrupt_agent`、`list_agents`、`send_message` | `ctx.tools`、`ctx.subagents`、`ctx.agents and ctx.sessionProjections (list_agents only)` | `tool/call`、`tool/result`、`child session events through ctx.subagents` | - | 这些是控制可继续后台 subagent 的全局命名工具：绑定提供方的 `tool-subagent` 实例注册不同的委派工具；本包注册一次 `send_message` 和 `interrupt_agent`，另由 `list_agents` 通过单独加载的 `/list-agents` 插件提供，其目录行使用 sessionProjections 和实时 Agent 注册表。 |
@@ -1109,7 +1110,7 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
 
 ### `schedule_create`
 
-在当前会话中创建一条提醒。请提供非空 prompt 和恰好一个 selector：正的安全整数 after_seconds 延时；作为严格带偏移日期时间或本地日期／时间对象的 at；或不小于 300 的安全整数 every_seconds。固定速率提醒始终与创建时刻对齐，会跳过错过的发生时点，并把每条逾期规则的最新一个发生时点合并到一个批次中。交付模式是 session-local：只有此会话处于 live 状态时，提醒才会准时运行；否则提醒会进入 overdue 状态，直至会话恢复。
+在当前会话中创建一条提醒。请提供非空 prompt 和恰好一个 selector：正的安全整数 after_seconds 延时；作为严格带偏移日期时间或本地日期／时间对象的 at；或不小于 300 的安全整数 every_seconds。固定速率提醒始终与创建时刻对齐，会跳过错过的发生时点，并把每条逾期规则的最新一个发生时点合并到一个批次中。交付模式是 session-local：只有此会话处于 live 状态时，提醒才会准时运行；否则提醒会进入 overdue 状态，直至会话恢复。可选的管理元数据（标题、项目、模型、推理强度、通知策略、暂停标记）会附加到记录；已暂停的提醒保留在列表中，但永远不会触发。
 
 ```json
 {
@@ -1154,6 +1155,35 @@ create、edit、pause 和 resume 要求直接来自人类的根权限；complete
         }
       ],
       "description": "Absolute target as strict offset RFC 3339 or local date/time with an explicit IANA zone."
+    },
+    "title": {
+      "type": "string",
+      "description": "Display title; defaults to the prompt leading text."
+    },
+    "project": {
+      "type": "string",
+      "description": "Owning project label."
+    },
+    "model": {
+      "type": "string",
+      "description": "Model selected for the run; defaults to the session model."
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Reasoning effort label."
+    },
+    "notify": {
+      "type": "string",
+      "description": "Delivery notification policy. Defaults to every run.",
+      "enum": [
+        "all",
+        "on-failure",
+        "never"
+      ]
+    },
+    "paused": {
+      "type": "boolean",
+      "description": "List the reminder paused so it never fires until deleted and recreated."
     }
   },
   "required": [
@@ -1303,6 +1333,125 @@ lsp 工具将提供方选择和语言服务器子进程置于 ctx.lsp 之后，�
 ```
 
 来源：[`packages/skill/tool-skill/src/index.ts`](../packages/skill/tool-skill/src/index.ts)
+
+<a id="deepseek-aidsh-skill-filesystem"></a>
+
+## `@deepseek-ai/dsh-skill-filesystem`
+
+### `skill_disable`
+
+禁用已安装的 skill：写入显式的禁用调用标记对，不触碰其他字节。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+來源：[`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+### `skill_enable`
+
+启用已安装的 skill：写入显式的启用调用标记对，不触碰其他字节。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    }
+  },
+  "required": [
+    "name"
+  ]
+}
+```
+
+來源：[`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+### `skill_install`
+
+用显式的名称、描述和指令正文安装 skill。在单个 skill 根目录下写入 <name>/SKILL.md，无 overwrite true 时拒绝覆盖。组织正文前请优先参考 skill-installer skill 指引。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Kebab-case skill name, for example code-review."
+    },
+    "description": {
+      "type": "string",
+      "description": "Short routing description shown by discovery."
+    },
+    "body": {
+      "type": "string",
+      "description": "Full instruction body below the frontmatter."
+    },
+    "scope": {
+      "type": "string",
+      "description": "Install scope: project-dsh (.dsh/skills), project-agents (.agents/skills), user-dsh, user-agents, or custom. Defaults to project-dsh."
+    },
+    "custom_dir": {
+      "type": "string",
+      "description": "Custom root for custom scope; must equal a configured custom skill root."
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Replace an existing SKILL.md. Defaults to false."
+    },
+    "when_to_use": {
+      "type": "string",
+      "description": "Optional extra routing guidance."
+    },
+    "disable_model_invocation": {
+      "type": "boolean",
+      "description": "Hide the skill from the model catalog. Defaults to false."
+    },
+    "user_invocable": {
+      "type": "boolean",
+      "description": "Offer the skill as a /name gesture. Defaults to true."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "body"
+  ]
+}
+```
+
+來源：[`packages/skill/skill-filesystem/src/install-tools.ts`](../packages/skill/skill-filesystem/src/install-tools.ts)
+
+选择启用的安装器表面：仅当 skill-filesystem 组合设置 installTools 时才注册工具。skill_install 写入单个 <name>/SKILL.md 包，无 overwrite true 时拒绝覆盖；skill_enable 与 skill_disable 只重写两个调用标记。
 
 <a id="deepseek-aidsh-tool-session-query"></a>
 

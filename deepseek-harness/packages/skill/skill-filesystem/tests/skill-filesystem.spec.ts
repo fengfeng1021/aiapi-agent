@@ -163,7 +163,9 @@ async function waitFor<T>(read: () => Promise<T>, accept: (value: T) => boolean)
 describe('dsh-skill-filesystem plugin exports', () => {
   it('declares stable plugin metadata', () => {
     expect(SkillFileSystem.name).toBe('skill-filesystem')
-    expect(SkillFileSystem.inject).toEqual(['skills'])
+    // The installer tools register through ctx.tools, so the service joins
+    // the declared injections once the opt-in tools exist.
+    expect(SkillFileSystem.inject).toEqual(['skills', 'tools'])
   })
 })
 

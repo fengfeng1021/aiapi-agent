@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -40,7 +40,7 @@ function imageRenderer(calls: MessageImagesRenderOwner[]): RenderMessageImages {
 }
 
 describe('assistant image slot handoff', () => {
-  it('passes one image group and its message alignment to the renderer', () => {
+  it('collapses one image group behind a viewed-images row until expanded', () => {
     const calls: MessageImagesRenderOwner[] = []
     const view = render(
       <AssistantMarkdown
@@ -50,6 +50,9 @@ describe('assistant image slot handoff', () => {
         renderMessageImages={imageRenderer(calls)}
       />,
     )
+    expect(view.queryByTestId('message-images')).toBeNull()
+    expect(calls).toHaveLength(0)
+    fireEvent.click(view.getByText('已查看 1 张图片'))
     expect(view.getByTestId('message-images').getAttribute('data-align')).toBe('start')
     expect(calls).toHaveLength(1)
     expect(calls[0]?.images).toEqual([{ attachment }])
@@ -70,13 +73,16 @@ describe('assistant image slot handoff', () => {
         renderMessageImages={imageRenderer(calls)}
       />,
     )
+    expect(view.queryByTestId('message-images')).toBeNull()
+    fireEvent.click(view.getByText('已查看 2 张图片'))
+    fireEvent.click(view.getByText('已查看 1 张图片'))
     const galleries = view.getAllByTestId('message-images')
     expect(galleries).toHaveLength(2)
     expect(galleries.map(gallery => gallery.getAttribute('data-count'))).toEqual(['2', '1'])
     expect(calls.map(call => call.images.length)).toEqual([2, 1])
   })
 
-  it('keeps the renderer output at the image block position between text blocks', () => {
+  it('keeps the image group position between text blocks after expanding', () => {
     const calls: MessageImagesRenderOwner[] = []
     const view = render(
       <AssistantMarkdown
@@ -90,6 +96,7 @@ describe('assistant image slot handoff', () => {
         renderMessageImages={imageRenderer(calls)}
       />,
     )
+    fireEvent.click(view.getByText('已查看 1 张图片'))
     const image = view.getByTestId('message-images')
     const before = view.getByText('before')
     const after = view.getByText('after')

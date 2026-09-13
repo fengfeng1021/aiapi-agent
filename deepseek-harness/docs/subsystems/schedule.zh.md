@@ -6,7 +6,7 @@ Schedule 拥有持久提醒；这些提醒会作为普通的后续对话轮次�
 
 ## 持久记录
 
-`ScheduleId` 是[品牌化 id](core.zh.md#branded-ids)，在单个 Session 内唯一且绝不复用。版本 1 支持正的安全整数 `after_seconds` 延时、显式的绝对 `at` 目标，或至少五分钟的安全整数 `every_seconds` 间隔。创建操作会将每个初始目标规范化为使用四位年份的 RFC 3339 UTC `scheduledAt`；`after` 记录会保留提交的延时，`at` 记录只存储结果时点，`every` 记录则保留固定间隔和下一个目标。
+`ScheduleId` 是[品牌化 id](core.zh.md#branded-ids)，在单个 Session 内唯一且绝不复用。版本 1 支持正的安全整数 `after_seconds` 延时、显式的绝对 `at` 目标，或至少五分钟的安全整数 `every_seconds` 间隔。创建操作会将每个初始目标规范化为使用四位年份的 RFC 3339 UTC `scheduledAt`；`after` 记录会保留提交的延时，`at` 记录只存储结果时点，`every` 记录则保留固定间隔和下一个目标。版本 2 保留相同的三种规则，并允许每条记录携带可选的 `meta` 对象管理元数据（标题、项目、模型、推理强度、通知策略、暂停标记）。仅当记录携带元数据时写入端才发出版本 2 信封，否则保持版本 1；delete 与 dispatch 信封因不携带记录而永远保持版本 1。decoder 同时读取两个版本，版本 1 记录回放时不会被注入元数据。
 
 ```ts type-equiv
 /** Durable one-shot reminder created from a positive delay. */
@@ -21,6 +21,8 @@ interface AfterScheduleRecord {
   readonly afterSeconds: number
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 ```
 
@@ -35,6 +37,8 @@ interface AtScheduleRecord {
   readonly prompt: string
   /** Four-digit-year RFC 3339 UTC target. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
 }
 ```
 
@@ -51,6 +55,34 @@ interface EveryScheduleRecord {
   readonly everySeconds: number
   /** Earliest anchor-aligned occurrence not yet dispatched. */
   readonly scheduledAt: string
+  /** Optional version-2 management metadata. */
+  readonly meta?: ScheduleMetadata
+}
+```
+
+```ts type-equiv
+/** Version-2 delivery notification policy for one durable reminder. */
+type ScheduleNotifyPolicy = 'all' | 'on-failure' | 'never'
+```
+
+```ts type-equiv
+/**
+ * Optional version-2 management metadata carried on any durable record.
+ * Absent on version-1 records; presentation applies documented defaults.
+ */
+interface ScheduleMetadata {
+  /** Display title; defaults to the prompt's leading text. */
+  readonly title?: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy; defaults to every run. */
+  readonly notify?: ScheduleNotifyPolicy
+  /** Paused records stay active but are managed as paused. */
+  readonly paused?: boolean
 }
 ```
 
@@ -104,7 +136,8 @@ Schedule 会拒绝无效偏移量与时区、不带偏移量的字符串、非�
 ```ts type-equiv
 /** Creates one durable reminder record. */
 interface ScheduleCreateChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 carries record metadata. */
+  readonly version: 1 | 2
   readonly operation: 'create'
   readonly schedule: ScheduleRecord
 }
@@ -113,7 +146,8 @@ interface ScheduleCreateChange {
 ```ts type-equiv
 /** Deletes one currently active reminder. */
 interface ScheduleDeleteChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'delete'
   readonly id: ScheduleId
 }
@@ -122,7 +156,8 @@ interface ScheduleDeleteChange {
 ```ts type-equiv
 /** Records that one active one-shot reminder entered the durable dispatch history. */
 interface OneShotScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
 }
@@ -131,7 +166,8 @@ interface OneShotScheduleDispatchChange {
 ```ts type-equiv
 /** Records one fixed-rate decision and advances directly past missed occurrences. */
 interface EveryScheduleDispatchChange {
-  readonly version: 1
+  /** Envelope version: writers emit 1; 2 remains readable. */
+  readonly version: 1 | 2
   readonly operation: 'dispatch'
   readonly id: ScheduleId
   /** Wall-clock decision time used to select the latest due occurrence. */
@@ -149,7 +185,7 @@ type ScheduleDispatchChange = OneShotScheduleDispatchChange | EveryScheduleDispa
 type ScheduleChange = ScheduleCreateChange | ScheduleDeleteChange | ScheduleDispatchChange
 ```
 
-严格 decoder 与 fold 会拒绝未知版本、额外字段、复用 id、不匹配的一次性提醒或 Every dispatch 形状，以及针对非活动记录的 delete 或 dispatch 转换。普通 Session 折叠完整事件流。fork 只折叠 `SessionHeader.seedLength` 位置及其后的事件，因此保留历史，但不会接管父 Session 的活动提醒。Schedule projection 从传给 `init(header)` 的不可变 header 派生该边界，复用共享 transition，并持久化活动记录与已使用 id 历史，使缓存恢复继续保持严格回放。`schedule/change` 声明和源码位置也编入[持久化目录](../persistence-catalog.zh.md#schedulechange--log-only)。
+严格 decoder 与 fold 会拒绝 1 或 2 以外的版本、额外字段、复用 id、不匹配的一次性提醒或 Every dispatch 形状、畸形的版本 2 元数据，以及针对非活动记录的 delete 或 dispatch 转换。普通 Session 折叠完整事件流。fork 只折叠 `SessionHeader.seedLength` 位置及其后的事件，因此保留历史，但不会接管父 Session 的活动提醒。Schedule projection 从传给 `init(header)` 的不可变 header 派生该边界，复用共享 transition，并持久化活动记录与已使用 id 历史，使缓存恢复继续保持严格回放。`schedule/change` 声明和源码位置也编入[持久化目录](../persistence-catalog.zh.md#schedulechange--log-only)。
 
 ## 活动视图与管理
 
@@ -175,7 +211,32 @@ type ScheduleView = ScheduleRecord & {
 }
 ```
 
-生成的[工具目录](../tool-catalog.zh.md#deepseek-aidsh-schedule)负责 `schedule_create`、`schedule_list` 和 `schedule_delete` 的参数与结果 schema。一条 Agent-scoped 队列将管理调用与到期工作串行化。每次读取或判断都会先等待共享的 Session 持久化 barrier；create 与实际执行的 delete 在追加后还会再次等待。barrier 失败会报告 `persistence_uncertain`，而不是猜测 eager write 是否已提交。其他稳定错误代码是 `invalid_prompt`、`invalid_selector`、`invalid_rule`、`invalid_time_zone`、`not_future`、`time_out_of_range`、`frequency_too_high`、`corrupt_schedule_log` 和 `internal_error`。
+```ts type-equiv
+/** Management status of one active reminder derived from its durable metadata. */
+type ScheduleActiveStatus = 'active' | 'paused'
+```
+
+```ts type-equiv
+/** Effective version-2 metadata with presentation defaults applied. */
+interface ResolvedScheduleMetadata {
+  /** Display title: stored title or the prompt's leading text. */
+  readonly title: string
+  /** Owning project label; absent means no project. */
+  readonly project?: string
+  /** Model selected for the run; absent means the session default. */
+  readonly model?: string
+  /** Reasoning effort label; absent means unspecified. */
+  readonly reasoning?: string
+  /** Delivery notification policy. */
+  readonly notify: ScheduleNotifyPolicy
+  /** Whether the record is managed as paused. */
+  readonly paused: boolean
+}
+```
+
+管理界面通过 `resolveScheduleMetadata` 解析每条活动记录（已存储标题或 prompt 前四十个 code point、全量通知、未暂停），并用 `scheduleActiveStatus` 判断状态，而不是对缺失的 `meta` 键做分支。
+
+生成的[工具目录](../tool-catalog.zh.md#deepseek-aidsh-schedule)负责 `schedule_create`、`schedule_list` 和 `schedule_delete` 的参数与结果 schema。一条 Agent-scoped 队列将管理调用与到期工作串行化。每次读取或判断都会先等待共享的 Session 持久化 barrier；create 与实际执行的 delete 在追加后还会再次等待。barrier 失败会报告 `persistence_uncertain`，而不是猜测 eager write 是否已提交。其他稳定错误代码是 `invalid_prompt`、`invalid_selector`、`invalid_rule`、`invalid_time_zone`、`not_future`、`time_out_of_range`、`frequency_too_high`、`corrupt_schedule_log` 和 `internal_error`。`schedule_create` 在规则选择器之外接受六个元数据字段，并在第一个 barrier 之前完成校验；没有更新操作，变更元数据意味着删除后重建提醒。
 
 ## 只读 Web 目录
 
@@ -185,7 +246,7 @@ shipped Web bundle 默认禁用 `ui-schedule`，显式 Schedule overlay 则把�
 
 ## Live 交付
 
-进程内 owner 根据持久 fold 派生最早的 timer，并在每次有界等待后重新读取墙钟。cold Session 不执行任何工作；重新打开后会重建 timer，并使已经过去的目标进入 overdue 状态。到期的一次性提醒享有优先级，每次只进入一个后续轮次。当没有一次性提醒到期时，所有 overdue 的 Every 记录会组成上述单个批次。
+进程内 owner 根据持久 fold 派生最早的 timer，并在每次有界等待后重新读取墙钟。cold Session 不执行任何工作；重新打开后会重建 timer，并使已经过去的目标进入 overdue 状态。已暂停的记录保留在列表中，但对所有到期分支不可见：既不 dispatch 也不装载 timer。到期的一次性提醒享有优先级，每次只进入一个后续轮次。当没有一次性提醒到期时，所有 overdue 的 Every 记录会组成上述单个批次。
 
 到期工作会先等待 Agent 完全 idle 并认领 maintenance phase，再重新折叠状态、采样本次判断、将一个 `followup()` 排入队列，并追加对应的 dispatch 变更。它绝不会调用 `steer()`，也绝不会中断当前轮次。
 

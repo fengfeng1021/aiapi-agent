@@ -1,6 +1,6 @@
-import { Fragment, memo, useMemo } from 'react'
+import { memo, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
-import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { DisclosureRow, JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { AssistantBlock } from '../contract/snapshot.ts'
@@ -84,12 +84,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           i += 1
         }
         rendered.push(
-          <Fragment key={start}>
-            {renderMessageImages({
-              images: group.map(({ attachment }) => ({ attachment })),
-              align: 'start',
-            })}
-          </Fragment>,
+          <ViewedImages key={start} group={group} renderMessageImages={renderMessageImages} t={t} />,
         )
         break
       }
@@ -116,6 +111,32 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     </div>
   )
 })
+
+function ViewedImages({ group, renderMessageImages, t }: {
+  group: readonly Extract<AssistantBlock, { kind: 'image' }>[]
+  renderMessageImages: AssistantMarkdownProps['renderMessageImages']
+  t: AssistantMarkdownProps['t']
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const count = group.length
+  return (
+    <div data-viewed-images={count}>
+      <DisclosureRow
+        icon={<span className={css.imagesDot} aria-hidden />}
+        title={t(count === 1 ? 'message.viewedImages.one' : 'message.viewedImages.other', { count })}
+        open={expanded}
+        expandable
+        expandOnRowClick
+        onToggle={() => { setExpanded(value => !value) }}
+      >
+        {expanded ? renderMessageImages({
+          images: group.map(({ attachment }) => ({ attachment })),
+          align: 'start',
+        }) : null}
+      </DisclosureRow>
+    </div>
+  )
+}
 
 function ProcessReasoning({ hidden, reveal, children }: {
   hidden: boolean

@@ -22,7 +22,9 @@ import { RemoteError, TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ClientSessionContext, InputTriggerSource } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 import { apply, inject } from '../src/client/index.ts'
+import { en, zh } from '../src/client/locales.ts'
 import { SkillRow as SkillToolRow } from '../src/client/SkillRow.tsx'
+import { SkillsFooterAction } from '../src/client/SkillsFooterAction.tsx'
 
 type SkillRow = { name: string; description: string; whenToUse?: string; modelInvocable?: boolean }
 type ListResult =
@@ -41,7 +43,10 @@ function providePresentation(ctx: Context): PresentationCapture {
   const slots = new SlotRegistry(ctx)
   slots.register({
     name: 'root',
-    children: { 'tool.call.toolview': { kind: 'keyed', scope: 'session' } },
+    children: {
+      'tool.call.toolview': { kind: 'keyed', scope: 'session' },
+      'sidebar.primary.action': { kind: 'list', scope: 'root' },
+    },
   } as never, () => null)
   const capture: PresentationCapture = {
     slots,
@@ -116,28 +121,26 @@ describe('apply', () => {
     expect(entry?.options).toMatchObject({ key: 'skill' })
     expect(entry?.locale).toBe('skill')
     expect(entry?.component).toBe(SkillToolRow)
-    expect(presentation.dictionaries).toEqual([{
-      namespace: 'skill', dictionaries: {
-        zh: {
-          'row.title': 'Skill',
-          'row.running': '正在加载 skill',
-          'row.failed': 'skill 加载失败',
-          'row.stopped': 'skill 加载已中止',
-          'row.instructions': '说明',
-          'row.inspect': '查看',
-          'menu.userOnly': '仅用户',
-        },
-        en: {
-          'row.title': 'Skill',
-          'row.running': 'Loading skill',
-          'row.failed': 'Skill load failed',
-          'row.stopped': 'Skill load stopped',
-          'row.instructions': 'Instructions',
-          'row.inspect': 'Inspect',
-          'menu.userOnly': 'user-only',
-        },
-      },
-    }])
+    expect(presentation.dictionaries).toEqual([{ namespace: 'skill', dictionaries: { zh, en } }])
+    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+
+  it('registers the sidebar marketplace entry with its catalog read', async () => {
+    const ctx = new Context()
+    ctx.provide('inputTriggers', { registerSource: () => () => {} })
+    ctx.provide('sessions', { subagentAddress: () => undefined })
+    new TestRemote(ctx, { skills: { list: listOk(CATALOG) } })
+    const presentation = providePresentation(ctx)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    const entry = presentation.slots.entries('sidebar.primary.action')[0]
+    expect(entry?.options).toMatchObject({ id: 'extensions-entry' })
+    expect(entry?.locale).toBe('skill')
+    expect(entry?.component).toBe(SkillsFooterAction)
+    const face = (entry?.inject as unknown as () => {
+      listSkills: (sessionId: SessionId, signal: AbortSignal) => Promise<unknown>
+    })()
+    const catalog = await face.listSkills(sid('s1'), new AbortController().signal)
+    expect(catalog).toEqual({ ok: true, value: { skills: CATALOG } })
   })
 
   it('registers the "/" skill source; disposal frees the name (HMR safety)', async () => {

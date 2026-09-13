@@ -131,6 +131,16 @@ class FakeWorkspaces implements IWorkspaces {
       archivedSessionIds: [...state.archivedSessionIds, sessionId],
     }))
   }
+  onDeleteSession: IWorkspaces['deleteSession'] = async (sessionId) => {
+    this.list.update(state => ({
+      ...state,
+      items: state.items.map(item => ({
+        ...item,
+        sessionIds: item.sessionIds.filter(id => id !== sessionId),
+      })),
+      archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+    }))
+  }
 
   declare readonly create: IWorkspaces['create']
   declare readonly rename: IWorkspaces['rename']
@@ -145,6 +155,10 @@ class FakeWorkspaces implements IWorkspaces {
   archiveSession(sessionId: SessionId): Promise<void> {
     this.archiveCalls.push(sessionId)
     return this.onArchive(sessionId)
+  }
+
+  deleteSession(sessionId: SessionId): Promise<void> {
+    return this.onDeleteSession(sessionId)
   }
 }
 
@@ -420,6 +434,20 @@ describe('UiWorkspaceService', () => {
     b.workspaces.onArchive = () => Promise.reject(new Error('archive rejected'))
     await expect(b.uiWorkspace.archiveSession(idle)).rejects.toThrow('archive rejected')
     expect(b.workspaces.archiveCalls).toEqual([idle, idle])
+  })
+
+  it('forwards delete commands and preserves failures', async () => {
+    const idle = sid('idle')
+    const b = bench()
+    const calls: SessionId[] = []
+    b.workspaces.onDeleteSession = async (sessionId) => {
+      calls.push(sessionId)
+    }
+    await b.uiWorkspace.deleteSession(idle)
+    expect(calls).toEqual([idle])
+    b.workspaces.onDeleteSession = () => Promise.reject(new Error('delete rejected'))
+    await expect(b.uiWorkspace.deleteSession(idle)).rejects.toThrow('delete rejected')
+    expect(calls).toEqual([idle])
   })
 
   it('passes directory operations to the Host and preserves structured browse failures', async () => {

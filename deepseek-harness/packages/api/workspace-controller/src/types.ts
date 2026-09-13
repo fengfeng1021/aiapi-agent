@@ -44,6 +44,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'directory-picker/unreadable': { readonly path: string }
     /** A child of that name is already there. */
     'directory-picker/exists': { readonly path: string }
+    /** The session is currently open; close it before deleting. */
+    'session/live': { readonly sessionId: SessionId }
     /** The parent is not fully qualified, the name is not one segment, or creation failed. */
     'directory-picker/create-failed': { readonly path: string }
   }
@@ -74,6 +76,11 @@ export interface WorkspaceValue {
 /** Workspace registration deletion. */
 export interface WorkspaceDeleteRequest {
   readonly workspaceId: WorkspaceId
+  /**
+   * Also permanently delete every session owned by the workspace (log files
+   * included), instead of leaving them under Ungrouped. Defaults to false.
+   */
+  readonly cascadeSessions?: boolean
 }
 
 /** Receipt after one Workspace registration is deleted. */
@@ -107,6 +114,16 @@ export interface WorkspaceArchiveSessionRequest {
 /** Complete archived Session set after a mutation. */
 export interface WorkspaceArchiveValue {
   readonly archivedSessionIds: readonly SessionId[]
+}
+
+/** Session requested for permanent deletion (durable log included). */
+export interface WorkspaceDeleteSessionRequest {
+  readonly sessionId: SessionId
+}
+
+/** Receipt after one Session is permanently deleted. */
+export interface WorkspaceDeleteSessionValue {
+  readonly deleted: true
 }
 
 /** Complete reconnect baseline for Workspace browser state. */

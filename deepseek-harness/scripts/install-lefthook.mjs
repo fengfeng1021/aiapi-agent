@@ -14,7 +14,22 @@ import {
 } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import lefthookPackage from 'lefthook/package.json' with { type: 'json' }
+
+/**
+ * Resolve the lefthook binary name without failing production deploys: the
+ * desktop runtime closure installs with dev dependencies pruned, where this
+ * package is absent and git hooks are meaningless. A missing package is a
+ * skip, not an error.
+ * @returns the binary name, or undefined when lefthook is not installed.
+ */
+async function lefthookBinName() {
+  try {
+    const { default: lefthookPackage } = await import('lefthook/package.json', { with: { type: 'json' } })
+    return typeof lefthookPackage?.bin?.lefthook === 'string' ? lefthookPackage.bin.lefthook : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const MINIMUM_GIT = [2, 26, 0]
 const HOOKS_DIRECTORY = 'dsh-hooks'
@@ -690,7 +705,7 @@ function probePairingMergeDriver(root) {
 
 async function main() {
   if (process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true') return
-  if (typeof lefthookPackage.bin?.lefthook !== 'string') return
+  if (await lefthookBinName() === undefined) return
   const probe = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
   if (probe.status !== 0) return
   const root = stripGitLineTerminator(probe.stdout)

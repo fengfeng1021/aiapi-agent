@@ -432,3 +432,28 @@ describe('ApiSession create or adoption', () => {
     expect(() => composition.setup(new Context())).toThrow('Agent setup has no scoped Agent')
   })
 })
+
+describe('ApiSession close', () => {
+  it('disposes the tracked Agent exactly once so its Session can be deleted', async () => {
+    const { ctx, agents } = await harness()
+    const meta = header('closable')
+    providePersistence(ctx, {
+      list: () => Promise.resolve([meta]),
+      inspect: () => Promise.resolve({ meta, events: [] }),
+    })
+    const resumed = unpublishedAgent(ctx, meta)
+    const dispose = vi.fn(() => Promise.resolve())
+    vi.spyOn(ctx.agents, 'resume').mockResolvedValue({ agent: resumed, dispose })
+
+    await expect(agents.resolveAgent(meta.id)).resolves.toEqual({ agent: resumed })
+    await agents.closeSession(meta.id)
+    expect(dispose).toHaveBeenCalledOnce()
+
+    // The capability is single-shot per tracked handle: a repeat close and an
+    // id this controller never opened are both no-ops, so a Session live under
+    // another owner keeps its log and the caller's liveness re-check decides.
+    await agents.closeSession(meta.id)
+    await agents.closeSession(SessionId('never-opened'))
+    expect(dispose).toHaveBeenCalledOnce()
+  })
+})

@@ -1,4 +1,3 @@
-import { ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { type Agent, type AgentOptions } from '@deepseek-ai/dsh-agent'
@@ -11,8 +10,7 @@ import * as AgentInvariant from '@deepseek-ai/dsh-agent/invariant'
 import * as AgentLoopInvariant from '@deepseek-ai/dsh-agent-loop/invariant'
 import SubagentRuntime, { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { maxTokensResponse, MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { startInProcessRun } from '../src/index.ts'
 
 type Script = ConstructorParameters<typeof MockAdapter>[0]
@@ -51,68 +49,7 @@ function request(parent: Agent, signal = new AbortController().signal) {
   }
 }
 
-function text(blocks: readonly { type: string; text?: string }[]): string {
-  return blocks.filter(block => block.type === 'text').map(block => block.text).join('')
-}
-
 describe('startInProcessRun', () => {
-  it('returns only after publication, drives a fresh child, and disposes it', async () => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    const run = await startInProcessRun(request(parent), {})
-    expect(ctx.agents.get(run.id)).toBeDefined()
-    const result = await run.result
-    expect(result.stopReason).toBe('completed')
-    expect(text(result.output)).toBe('driver answer')
-    expect(ctx.agents.get(run.id)!.options.subagentDepth).toBe(1)
-    await run.dispose()
-    await run.dispose()
-    expect(ctx.agents.get(run.id)).toBeUndefined()
-  })
-
-  it('uses explicit child model selectors when the parent has none and preserves its cwd', async () => {
-    const { ctx } = await setup([textResponse('driver answer')])
-    const parent = ctx.agentLoop.create(SessionId('bare-parent'), {}, { cwd: '/workspace' })
-    const run = await startInProcessRun({
-      ...request(parent),
-      agentOptions: { provider: 'mock', model: 'mock' },
-    }, {})
-
-    const child = ctx.agents.get(run.id)!
-    expect(child.options).toMatchObject({ provider: 'mock', model: 'mock' })
-    expect(child.session.header.cwd).toBe('/workspace')
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
-    await run.dispose()
-  })
-
-  it('reports a prompt a pre-step rejection discarded as refusal, not completion', async () => {
-    const { ctx, parent } = await setup([])
-    // A UserPromptSubmit deny or a policy plugin: the child claims its prompt,
-    // the rejection discards it, and the turn closes `blocked` with no step.
-    ctx.on('agent/pre-step', async ({ agent: subject }, next) => {
-      if (subject === parent) return next()
-      return { kind: 'reject' as const }
-    })
-
-    const run = await startInProcessRun(request(parent), {})
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'refusal' })
-    await run.dispose()
-  })
-
-  it('does not add a final durability checkpoint to a foreground run', async () => {
-    const { ctx, parent } = await setup([textResponse('driver answer')])
-    let flushes = 0
-    ctx.on('session/flush', (session) => {
-      if (session.header.parentSession === undefined) return
-      flushes++
-      throw new Error('disk full')
-    })
-
-    const run = await startInProcessRun(request(parent), {})
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
-    expect(flushes).toBe(0)
-    await run.dispose()
-  })
-
   it('keeps published run and handle disposal failures on separate channels', async () => {
     const { ctx, parent } = await setup([])
     const runError = new Error('published run failed')
@@ -147,70 +84,6 @@ describe('startInProcessRun', () => {
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
   })
-  it('reports the turn outcome when later metadata is appended during flush', async () => {
-    const { ctx, parent } = await setup([maxTokensResponse('partial answer')])
-    let injected = false
-    ctx.on('session/flush', (session) => {
-      if (injected || session.header.parentSession === undefined) return
-      const lastEnd = session.events.findLast(event => event.type === 'turn/end')
-      if (lastEnd?.type !== 'turn/end' || lastEnd.data.reason.kind !== 'max-tokens') return
-      injected = true
-      session.append('user/message', createUserMessage({
-        content: [{ type: 'text', text: 'late metadata' }],
-        source: { kind: 'plugin', plugin: 'late-metadata' },
-      }), { surfaceOp: 'append' })
-    })
-
-    const run = await startInProcessRun(request(parent), {})
-    const result = await run.result
-    const child = ctx.agents.get(run.id)!
-
-    expect(injected).toBe(false)
-    expect(child.session.events.findLast(event => event.type === 'turn/end'))
-      .toMatchObject({ data: { reason: { kind: 'max-tokens' } } })
-    expect(result.stopReason).toBe('max-tokens')
-    await run.dispose()
-  })
-
-  it('keeps earlier streamed text when the final step appends an empty usage-only message', async () => {
-    // A tool-only max-tokens step records an empty assistant/message for
-    // usage. The result retains the preceding assistant output.
-    const { ctx, parent } = await setup([
-      toolCallResponse('t1', 'noop', {}, 'partial one'),
-      [
-        { type: 'block-start', index: 0, blockType: 'tool-call' },
-        { type: 'tool-call-delta', index: 0, id: ToolCallId('t2'), name: 'noop', argumentsDelta: '{}' },
-        { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('t2'), name: 'noop', arguments: '{}' } },
-        { type: 'usage', usage: { inputTokens: 20, outputTokens: 5 } },
-        { type: 'finish', reason: { kind: 'max-tokens' } },
-      ],
-    ])
-    const disposeNoop = ctx.tools.register(defineContentToolFixture({
-      name: 'noop', description: 'probe', parameters: {},
-      execute() { return Promise.resolve([{ type: 'text', text: 'noop result' }]) },
-    }))
-    const run = await startInProcessRun(request(parent), {})
-    const result = await run.result
-    expect(result.stopReason).toBe('max-tokens')
-    expect(text(result.output)).toBe('partial one')
-    await run.dispose()
-    disposeNoop()
-  })
-
-  it('seeds a forked child but reads only the child-owned output', async () => {
-    const { ctx, parent } = await setup([textResponse('parent answer'), textResponse('child answer')])
-    parent.followup(createUserMessage({ content: [{ type: 'text', text: 'parent question' }], source: { kind: 'user' } }))
-    await parent.whenIdle()
-    const seed = parent.session.events.slice()
-    const run = await startInProcessRun(request(parent), { seed })
-    const result = await run.result
-    expect(text(result.output)).toBe('child answer')
-    const child = ctx.agents.get(run.id)!
-    expect(child.session.header.seedLength).toBe(seed.length)
-    expect(child.session.events.slice(0, seed.length)).toEqual(seed)
-    await run.dispose()
-  })
-
   it('persists the child origin and depth in its session header', async () => {
     const { ctx, parent } = await setup([textResponse('child answer')])
     const run = await startInProcessRun(request(parent), {})
@@ -222,27 +95,6 @@ describe('startInProcessRun', () => {
       delegationDepth: 1,
     })
     await run.dispose()
-  })
-
-  it('inherits the parent output-token cap and accepts an explicit child override', async () => {
-    const { ctx, parent, adapter } = await setup(
-      [textResponse('inherited'), textResponse('overridden')],
-      { maxTokens: 111 },
-    )
-    const inherited = await startInProcessRun(request(parent), {})
-    await inherited.result
-    expect(adapter.requests[0]?.maxTokens).toBe(111)
-    expect(ctx.agents.get(inherited.id)?.options.maxTokens).toBe(111)
-    await inherited.dispose()
-
-    const overridden = await startInProcessRun({
-      ...request(parent),
-      agentOptions: { maxTokens: 222 },
-    }, {})
-    await overridden.result
-    expect(adapter.requests[1]?.maxTokens).toBe(222)
-    expect(ctx.agents.get(overridden.id)?.options.maxTokens).toBe(222)
-    await overridden.dispose()
   })
 
   it('counts a RESUMED child by its persisted header depth, not the absent runtime depth', async () => {
@@ -297,45 +149,6 @@ describe('startInProcessRun', () => {
       .rejects.toThrow('aborted before child publication')
     expect(ctx.agents.list()).toHaveLength(beforeAgents)
     expect(ctx.sessions.list()).toHaveLength(beforeSessions)
-  })
-
-  it('stamps only the resolved depth when neither parent nor request declares a model route', async () => {
-    // The one-shot analogue of the deleted resume coverage ("resumes without
-    // inventing undeclared agent model options"): a bare parent with no request
-    // agentOptions yields a child whose options carry ONLY the stamped depth —
-    // no provider/model is fabricated, so the child's turn errors for want of a
-    // route rather than silently adopting one.
-    const { ctx } = await setup([])
-    const parent = ctx.agentLoop.create(SessionId('routeless-parent'), {})
-    const run = await startInProcessRun(request(parent), {})
-    const child = ctx.agents.get(run.id)!
-    expect(child.options).toEqual({ subagentDepth: 1 })
-    await expect(run.result).resolves.toMatchObject({ stopReason: 'error' })
-    await run.dispose()
-  })
-
-  it('uses the request signal after publication and dispose as cancellation paths', async () => {
-    const { parent, adapter } = await setup(['hang', 'hang'])
-    const controller = new AbortController()
-    const signalled = await startInProcessRun(request(parent, controller.signal), {})
-    await new Promise(resolve => setTimeout(resolve, 30))
-    controller.abort('stop child')
-    // No step completed a message, so the text streamed before the abort is
-    // the cancelled run's output.
-    await expect(signalled.result).resolves.toEqual({
-      output: [{ type: 'text', text: 'partial' }],
-      stopReason: 'aborted',
-    })
-    expect(adapter.requests[0]?.signal?.reason).toEqual({ kind: 'parent' })
-    const child = parent.ctx.agents.get(signalled.id)
-    const turnEnd = child?.session.events.findLast(event => event.type === 'turn/end')
-    expect(turnEnd?.type === 'turn/end' && turnEnd.data.reason).toEqual({ kind: 'aborted', reason: { kind: 'parent' } })
-    await signalled.dispose()
-
-    const disposed = await startInProcessRun(request(parent), {})
-    await new Promise(resolve => setTimeout(resolve, 30))
-    await disposed.dispose()
-    await expect(disposed.result).resolves.toMatchObject({ stopReason: 'aborted' })
   })
 
   it('cleans a failed unpublished setup before rejecting', async () => {

@@ -1,5 +1,5 @@
 /**
- * Concrete agent-loop plugin: creates scoped ReactLoopAgents, publishes them
+ * Concrete agent-loop plugin: creates scoped CodexLoopAgents, publishes them
  * through the agent/session registries, and owns their ordered teardown.
  *
  * @module @deepseek-ai/dsh-agent-loop
@@ -310,8 +310,6 @@ export const AGENT_LOOP_SETTINGS_SCHEMA: z<AgentLoopSettings> = z.object({
 
 /** Agent-loop plugin configuration. */
 export interface Config {
-  /** Underlying agent loop engine ('codex' or 'react'). Defaults to 'codex'. */
-  engine?: 'codex' | 'react'
   /**
    * Maximum parallel-safe calls in flight per agent step. `1` is serial;
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.

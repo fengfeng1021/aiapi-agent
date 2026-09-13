@@ -6,35 +6,41 @@
   min-width: 0;
   overflow-wrap: anywhere;
   font: var(--dsw-font-markdown-base);
+  font-weight: var(--dsw-font-markdown-base-font-weight);
   color: var(--dsw-alias-label-primary);
 }
 
 .markdown strong {
-  font-weight: 600;
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
 }
 
 .markdown h1 {
   font: var(--dsw-font-markdown-h1);
+  font-weight: var(--dsw-font-markdown-h1-font-weight);
   margin: 32px 0 16px;
 }
 
 .markdown h2 {
   font: var(--dsw-font-markdown-h2);
+  font-weight: var(--dsw-font-markdown-h2-font-weight);
   margin: 32px 0 16px;
 }
 
 .markdown h3 {
   font: var(--dsw-font-markdown-h3);
+  font-weight: var(--dsw-font-markdown-h3-font-weight);
   margin: 32px 0 16px;
 }
 
 .markdown h4 {
   font: var(--dsw-font-markdown-h4);
+  font-weight: var(--dsw-font-markdown-h4-font-weight);
   margin: 16px 0;
 }
 
 .markdown :where(h5, h6) {
   font: var(--dsw-font-markdown-base-strong);
+  font-weight: var(--dsw-font-markdown-base-strong-font-weight);
   margin: 16px 0;
 }
 
@@ -58,8 +64,8 @@
 .markdown a {
   /* deepsuite markdown.css uses brand-text (blue in newDesign); this sheet
      keeps design-platform brand-text as near-black, so links use the blue
-     business-primary alias instead. */
-  color: var(--dsw-alias-state-business-primary);
+     shiki link token instead (auto light/dark, contrast-checked). */
+  color: var(--shiki-token-link);
   transition: box-shadow var(--ds-transition-duration) var(--ds-ease-in-out);
   position: relative;
   text-decoration: none;
@@ -75,11 +81,11 @@
 .markdown a:hover,
 .markdown a:focus {
   outline: none;
-  text-decoration: underline var(--dsw-alias-state-business-primary);
+  text-decoration: underline var(--shiki-token-link);
 }
 
 .markdown a:focus-visible {
-  box-shadow: 0 0 0 2px var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 2px var(--shiki-token-link);
 }
 
 .markdown :where(ul, ol) {
@@ -139,6 +145,7 @@
 
 .markdown pre {
   margin: 16px 0;
+  font-weight: var(--dsw-font-markdown-code-block-font-weight);
   font-family: var(--ds-font-family-code);
   overflow: auto;
 }
@@ -147,9 +154,10 @@
   display: inline-flex;
   align-items: center;
   box-sizing: border-box;
-  font: var(--dsw-font-markdown-code);
-  font-family: var(--ds-font-family-code);
-  font-size: 0.875em !important;
+  font-family: var(--dsw-font-family);
+  font-size: 1em;
+  font-weight: inherit;
+  color: var(--shiki-token-function);
   background-color: var(--dsw-alias-markdown-inline-code);
   border-radius: 6px;
   padding: 0 5px;
@@ -157,7 +165,7 @@
 
 .markdown :where(h1, h2, h3, h4, h5, h6) code {
   font: inherit;
-  font-family: var(--ds-font-family-code);
+  font-family: var(--dsw-font-family);
 }
 
 .markdown :global(.katex-display) {
@@ -228,6 +236,7 @@
   border-bottom: 1px solid var(--dsw-alias-border-l3);
   border-top: none;
   font: var(--dsw-font-markdown-table-head);
+  font-weight: var(--dsw-font-markdown-table-head-font-weight);
   max-width: 320px;
   max-width: min(30vw, 320px);
   min-width: 100px;
@@ -237,6 +246,7 @@
   padding: 10px 16px;
   border-bottom: 1px solid var(--dsw-alias-border-l2);
   font: var(--dsw-font-markdown-table);
+  font-weight: var(--dsw-font-markdown-table-font-weight);
   max-width: 320px;
   max-width: min(30vw, 320px);
   min-width: 100px;

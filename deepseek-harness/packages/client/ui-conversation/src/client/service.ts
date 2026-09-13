@@ -18,7 +18,9 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ImageMediaType } from '@deepseek-ai/dsh-attachment'
-import type { ComposerAttachment } from './contract/slots.ts'
+import type {
+  ComposerAttachment, ComposerFileAttachment, ComposerImageAttachment,
+} from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './contract/composer-blocks.ts'
 import type {
@@ -65,13 +67,19 @@ export interface IConversation {
 }
 
 /** Create one browser-only draft descriptor; only its id enters input state. */
-function browserDraftAttachment(file: File): ComposerAttachment {
+function browserDraftAttachment(file: File): ComposerImageAttachment {
   return {
     kind: 'image',
     id: randomUUID() as DraftAttachmentId,
     previewUrl: URL.createObjectURL(file),
     file,
   }
+}
+
+/** Basename of one host path across separator styles (chip label). */
+function basenameOf(path: string): string {
+  const base = path.split(/[/\\]/).pop()
+  return base === undefined || base === '' ? path : base
 }
 
 /**
@@ -82,7 +90,7 @@ function browserDraftAttachment(file: File): ComposerAttachment {
  * reads the dimensions into an immutable echo snapshot, so this late write
  * does not require a store notification.
  */
-function probeDimensions(attachment: ComposerAttachment): void {
+function probeDimensions(attachment: ComposerImageAttachment): void {
   if (typeof Image !== 'function') return
   const probe = new Image()
   probe.onload = () => {
@@ -164,7 +172,7 @@ export class ConversationController extends Service implements IConversation {
     this.blocks = config.blocks
     ctx.effect(() => () => {
       for (const attachment of this.draftAttachments.values()) {
-        revokePreview(attachment.previewUrl)
+        if (attachment.kind === 'image') revokePreview(attachment.previewUrl)
       }
       this.draftAttachments.clear()
     }, 'conversation draft attachments')
@@ -205,12 +213,22 @@ export class ConversationController extends Service implements IConversation {
   ): Promise<SubmitOutcome> {
     const attachments = this.draftImages(imageIds)
     if (attachments.length !== imageIds.length) {
-      throw new Error('conversation.sendSession: one or more draft images are no longer available')
+      throw new Error('conversation.sendSession: one or more draft attachments are no longer available')
     }
+    const images = attachments.filter((attachment): attachment is ComposerImageAttachment => attachment.kind === 'image')
+    // File references ride the prompt text; the composer shows chips, the
+    // model receives the paths.
+    const refs = attachments
+      .filter((attachment): attachment is ComposerFileAttachment => attachment.kind === 'file')
+      .map(attachment => `@${attachment.path}`)
+      .join('\n')
+    const promptText = text === ''
+      ? refs
+      : refs === '' ? text : `${text}\n${refs}`
     const snapshot = session.getSnapshot()
     if (snapshot.subagent !== null) {
-      const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
-      const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+      const uploaded = await this.serializeImages(images.map(attachment => attachment.file))
+      const content = [...uploaded, ...(promptText === '' ? [] : [{ type: 'text' as const, text: promptText }])]
       const result = await session.prompt(content, mode, signal)
       return result.ok ? { kind: 'success' } : { kind: 'error' }
     }
@@ -220,8 +238,8 @@ export class ConversationController extends Service implements IConversation {
       : new Promise<PendingSubmissionRetirement>((resolve) => { finishRetirement = resolve })
     const submission = session.beginSubmission({
       mode,
-      text,
-      images: attachments.map(attachment => ({
+      text: promptText,
+      images: images.map(attachment => ({
         previewUrl: attachment.previewUrl,
         ...(attachment.file.name === '' ? {} : { name: attachment.file.name }),
         ...(attachment.width === undefined ? {} : { width: attachment.width }),
@@ -235,8 +253,8 @@ export class ConversationController extends Service implements IConversation {
     let content: Parameters<SessionFace['prompt']>[0]
     try {
       await nextPaint()
-      const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
-      content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
+      const uploaded = await this.serializeImages(images.map(attachment => attachment.file))
+      content = [...uploaded, ...(promptText === '' ? [] : [{ type: 'text' as const, text: promptText }])]
     } catch (error) {
       submission.abandon()
       throw error
@@ -258,6 +276,26 @@ export class ConversationController extends Service implements IConversation {
       const attachment = browserDraftAttachment(file)
       this.draftAttachments.set(attachment.id, attachment)
       probeDimensions(attachment)
+      return attachment
+    })
+  }
+
+  /**
+   * Register host-path file references (desktop drops) as draft attachments.
+   * The bytes never cross the page: submit delivers each path to the model
+   * as a reference, while the composer shows a chip.
+   * @param paths - absolute host paths in drop order.
+   * @returns ordered draft descriptors.
+   */
+  createDraftFiles(paths: readonly string[]): readonly ComposerAttachment[] {
+    return paths.map((path) => {
+      const attachment: ComposerFileAttachment = {
+        kind: 'file',
+        id: randomUUID() as DraftAttachmentId,
+        path,
+        name: basenameOf(path),
+      }
+      this.draftAttachments.set(attachment.id, attachment)
       return attachment
     })
   }
@@ -288,7 +326,11 @@ export class ConversationController extends Service implements IConversation {
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.serializeDraftImages: one or more draft images are no longer available')
     }
-    return Promise.all(attachments.map(attachment => this.encodeImage(attachment.file)))
+    const images = attachments.filter((attachment): attachment is ComposerImageAttachment => attachment.kind === 'image')
+    if (images.length !== attachments.length) {
+      throw new Error('conversation.serializeDraftImages: file references cannot be submitted as command images')
+    }
+    return Promise.all(images.map(attachment => this.encodeImage(attachment.file)))
   }
 
   /**
@@ -299,7 +341,7 @@ export class ConversationController extends Service implements IConversation {
     const attachment = this.draftAttachments.get(id)
     if (attachment === undefined) return
     this.draftAttachments.delete(id)
-    revokePreview(attachment.previewUrl)
+    if (attachment.kind === 'image') revokePreview(attachment.previewUrl)
   }
 
   /**
@@ -375,14 +417,19 @@ export class ConversationController extends Service implements IConversation {
   ): void {
     if (retirement.reason !== 'observed') return
     const uiConversation = this.ctx.get('uiConversation')
-    attachments.forEach((attachment, index) => {
+    // The echo carries image previews only (files have no preview), so the
+    // durable index counts images seen so far, not all attachments.
+    let imageIndex = 0
+    for (const attachment of attachments) {
       const live = this.draftAttachments.get(attachment.id)
-      if (live === undefined) return
+      if (live === undefined) continue
       this.draftAttachments.delete(attachment.id)
-      const ref = retirement.attachments[index]
-      if (ref !== undefined && uiConversation?.seedImageUrl(sessionId, ref, attachment.previewUrl) === true) return
+      if (attachment.kind !== 'image') continue
+      const ref = retirement.attachments[imageIndex]
+      imageIndex += 1
+      if (ref !== undefined && uiConversation?.seedImageUrl(sessionId, ref, attachment.previewUrl) === true) continue
       revokePreview(attachment.previewUrl)
-    })
+    }
   }
 
   /** Convert browser files to canonical base64 prompt parts. */

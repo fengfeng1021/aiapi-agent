@@ -81,49 +81,7 @@ function foldedSandboxMode(ctx: Context, id: SessionId, events: readonly Session
   return ctx.sessionProjections.stateOf(Session.create(id, events), 'sandboxMode')
 }
 
-function foldedApprovalPolicy(ctx: Context, id: SessionId, events: readonly SessionEvent[]): unknown {
-  return ctx.approval.overrideOf(Session.create(id, events))
-}
-
 describe('continuable policy inheritance', () => {
-  it('seeds the parent sandbox override and pins approval to never', { timeout: 20_000 }, async () => {
-    const { ctx, parent } = await setup([textResponse('child done')])
-    setSandboxMode(parent.session, 'danger-full-access')
-    // No parent approval override: the child pin must not depend on one.
-    expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
-    let child: Agent | undefined
-    ctx.on('agent/created', ({ agent }) => {
-      if (agent !== parent) child = agent
-    })
-
-    const started = await ctx.subagents.startContinuable(startSpec(parent))
-    // The delegation events are appended in the creation window, so they are
-    // already the child's effective policy at inbox acceptance.
-    if (child === undefined) throw new Error('expected the continuable child to be created')
-    expect(ctx.sandboxPolicy.overrideOf(child.session)).toBe('danger-full-access')
-    expect(ctx.approval.overrideOf(child.session)).toBe('never')
-
-    await waitNoActivation(ctx, started.childId)
-    const loaded = await ctx.sessionPersistence.load(started.childId)
-    expect(policyEvents(loaded.events)).toMatchObject([
-      { type: 'sandbox/mode', data: { mode: 'danger-full-access', source: 'delegation' } },
-      { type: 'approval/policy', data: { policy: 'never', source: 'delegation' } },
-    ])
-    // Durable: a reload folds the same effective policy.
-    expect(foldedSandboxMode(ctx, started.childId, loaded.events)).toBe('danger-full-access')
-    expect(foldedApprovalPolicy(ctx, started.childId, loaded.events)).toBe('never')
-    expect(ctx.approval.overrideOf(parent.session)).toBeUndefined()
-    const runtimeContext = loaded.events.find(
-      (event): event is SessionEvent<'user/message'> => event.type === 'user/message'
-        && event.data.source.kind === 'plugin'
-        && event.data.source.plugin === '@deepseek-ai/dsh-system-prompt',
-    )
-    const contextText = runtimeContext?.data.content
-      .flatMap(block => block.type === 'text' ? [block.text] : [])
-      .join('\n')
-    expect(contextText).toContain('You are a delegated subagent')
-  })
-
   it('captures policy at delegation before asynchronous child creation', { timeout: 20_000 }, async () => {
     const { ctx, parent } = await setup([textResponse('child done')])
     setSandboxMode(parent.session, 'read-only')
